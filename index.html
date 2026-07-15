@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>El Rincón del Mate — Club de Puntos</title>
+<style>
+  :root{
+    --yerba: #4a6b3d;
+    --yerba-dark: #33492a;
+    --calabaza: #b5722f;
+    --calabaza-light: #d99a5b;
+    --cream: #f4ecd8;
+    --paper: #fbf6ea;
+    --ink: #2c2416;
+    --line: #d8c9a3;
+    --error: #a63d3d;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: 'Georgia', 'Iowan Old Style', serif;
+    background: var(--cream);
+    color: var(--ink);
+    min-height:100vh;
+  }
+  .wrap{
+    max-width:640px;
+    margin:0 auto;
+    padding:32px 20px 60px;
+  }
+  header{
+    text-align:center;
+    margin-bottom:28px;
+  }
+  .yerba-mark{
+    width:56px;height:56px;margin:0 auto 10px;
+    border-radius:50%;
+    background: radial-gradient(circle at 35% 30%, var(--calabaza-light), var(--calabaza) 70%);
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px;
+    box-shadow: 0 3px 0 var(--yerba-dark);
+  }
+  h1{
+    font-family: 'Palatino Linotype', 'Book Antiqua', serif;
+    font-size: 28px;
+    letter-spacing: 0.5px;
+    margin: 0 0 4px;
+    color: var(--yerba-dark);
+  }
+  .sub{
+    font-size:13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--calabaza);
+  }
+  nav{
+    display:flex;
+    gap:8px;
+    justify-content:center;
+    margin-bottom:28px;
+  }
+  nav button{
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 18px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    cursor:pointer;
+    transition: all .15s ease;
+  }
+  nav button.active{
+    background: var(--yerba);
+    color: #fff;
+    border-color: var(--yerba);
+  }
+  .card{
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 26px;
+    margin-bottom: 18px;
+  }
+  .card h2{
+    margin:0 0 16px;
+    font-size:18px;
+    color:var(--yerba-dark);
+    border-bottom: 1px solid var(--line);
+    padding-bottom:10px;
+  }
+  label{
+    display:block;
+    font-size: 13px;
+    color: var(--calabaza);
+    margin-bottom: 4px;
+    letter-spacing:0.3px;
+  }
+  input{
+    width:100%;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    margin-bottom: 14px;
+  }
+  input:focus{ outline: 2px solid var(--yerba); outline-offset:1px; }
+  .row{ display:flex; gap:10px; }
+  .row > div{ flex:1; }
+  button.action{
+    font-family: inherit;
+    font-size: 15px;
+    padding: 11px 18px;
+    border-radius: 8px;
+    border: none;
+    background: var(--yerba);
+    color: #fff;
+    cursor: pointer;
+    width:100%;
+  }
+  button.action:hover{ background: var(--yerba-dark); }
+  button.secondary{
+    background: var(--calabaza);
+  }
+  button.secondary:hover{ background: #9c5f26; }
+  .msg{
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .msg.ok{ background: #e4ecd9; color: var(--yerba-dark); }
+  .msg.err{ background: #f3dede; color: var(--error); }
+  .points-display{
+    text-align:center;
+    padding: 20px 0;
+  }
+  .points-display .num{
+    font-size: 52px;
+    font-weight:bold;
+    color: var(--yerba-dark);
+    line-height:1;
+  }
+  .points-display .label{
+    font-size: 13px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color: var(--calabaza);
+    margin-top:6px;
+  }
+  .rewards{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    margin-top:18px;
+  }
+  .reward{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background:#fff;
+  }
+  .reward.unlocked{
+    border-color: var(--yerba);
+    background: #eef4e7;
+  }
+  .reward .name{ font-weight:bold; font-size:15px; }
+  .reward .need{ font-size:12px; color:#8a7a55; }
+  .reward .status{ font-size: 12px; font-weight:bold; }
+  .reward.unlocked .status{ color: var(--yerba-dark); }
+  .reward.locked .status{ color:#a99b76; }
+  button.claim{
+    font-family:inherit;
+    font-size:13px;
+    padding:7px 12px;
+    border-radius:6px;
+    border:none;
+    background: var(--calabaza);
+    color:#fff;
+    cursor:pointer;
+  }
+  button.claim:hover{ background:#9c5f26; }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size: 14px;
+  }
+  th, td{
+    text-align:left;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  th{ color: var(--calabaza); font-size:12px; text-transform:uppercase; letter-spacing:0.5px; }
+  .empty{
+    text-align:center;
+    color:#8a7a55;
+    font-size:14px;
+    padding: 20px 0;
+    font-style:italic;
+  }
+  .hidden{ display:none !important; }
+  .small-note{
+    font-size:12px;
+    color:#8a7a55;
+    margin-top:-6px;
+    margin-bottom:14px;
+  }
+  #suggestBox{
+    position:absolute;
+    top: 100%;
+    left:0;
+    right:0;
+    z-index: 20;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin-top: -10px;
+    margin-bottom: 14px;
+    max-height: 220px;
+    overflow-y:auto;
+    box-shadow: 0 6px 16px rgba(44,36,22,0.12);
+  }
+  .suggest-item{
+    padding: 10px 12px;
+    cursor:pointer;
+    font-size: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .suggest-item:last-child{ border-bottom:none; }
+  .suggest-item:hover{ background: var(--cream); }
+  .suggest-item .sname{ font-weight:bold; }
+  .suggest-item .sphone{ font-size:12px; color:#8a7a55; }
+  .logout{
+    text-align:right;
+    margin-bottom:14px;
+  }
+  .logout button{
+    font-family:inherit;
+    font-size:12px;
+    padding:6px 12px;
+    border-radius:6px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--ink);
+    cursor:pointer;
+  }
+</style>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="yerba-mark">🧉</div>
+    <h1>El Rincón del Mate</h1>
+    <div class="sub">Club de Puntos</div>
+  </header>
+
+  <nav>
+    <button id="tabCliente" class="active" onclick="showTab('cliente')">Consultar puntos</button>
+    <button id="tabAdmin" onclick="showTab('admin')">Administrador</button>
+  </nav>
+
+  <!-- CLIENTE -->
+  <div id="viewCliente">
+    <div class="card">
+      <h2>¿Cuántos puntos tengo?</h2>
+      <label for="clientPhone">Tu número de teléfono</label>
+      <input id="clientPhone" type="tel" placeholder="Ej: 2634567890" />
+      <button class="action" onclick="buscarCliente()">Buscar</button>
+      <div id="clientMsg"></div>
+    </div>
+
+    <div id="clientResult" class="card hidden">
+      <div class="points-display">
+        <div class="num" id="clientPointsNum">0</div>
+        <div class="label" id="clientNameLabel">puntos</div>
+      </div>
+      <div class="rewards" id="rewardsList"></div>
+    </div>
+  </div>
+
+  <!-- ADMIN LOGIN -->
+  <div id="viewAdminLogin" class="hidden">
+    <div class="card">
+      <h2>Acceso administrador</h2>
+      <label for="adminUser">Usuario</label>
+      <input id="adminUser" type="text" />
+      <label for="adminPass">Contraseña</label>
+      <input id="adminPass" type="password" />
+      <button class="action secondary" onclick="loginAdmin()">Ingresar</button>
+      <div id="adminLoginMsg"></div>
+    </div>
+  </div>
+
+  <!-- ADMIN PANEL -->
+  <div id="viewAdminPanel" class="hidden">
+    <div class="logout"><button onclick="logoutAdmin()">Cerrar sesión</button></div>
+
+    <div class="card">
+      <h2>Registrar cliente nuevo</h2>
+      <div class="row">
+        <div>
+          <label for="newNombre">Nombre</label>
+          <input id="newNombre" type="text" />
+        </div>
+        <div>
+          <label for="newApellido">Apellido</label>
+          <input id="newApellido" type="text" />
+        </div>
+      </div>
+      <label for="newTelefono">Teléfono</label>
+      <input id="newTelefono" type="tel" placeholder="Ej: 2634567890" />
+      <button class="action" onclick="registrarCliente()">Registrar</button>
+      <div id="registerMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Sumar puntos</h2>
+      <label for="pointsPhone">Teléfono o nombre del cliente</label>
+      <div style="position:relative;">
+        <input id="pointsPhone" type="text" placeholder="Ej: 2634567890 o Juan Pérez" autocomplete="off" oninput="buscarSugerencias()" onfocus="buscarSugerencias()" />
+        <div id="suggestBox" class="hidden"></div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="montoCompra">Monto de compra ($)</label>
+          <input id="montoCompra" type="number" min="0" placeholder="Ej: 5000" />
+          <div class="small-note">Cada $1000 = 10 puntos</div>
+        </div>
+        <div>
+          <label for="referidos">Clientes nuevos traídos</label>
+          <input id="referidos" type="number" min="0" placeholder="Ej: 1" />
+          <div class="small-note">Cada uno = 5 puntos</div>
+        </div>
+      </div>
+      <button class="action secondary" onclick="sumarPuntos()">Sumar puntos</button>
+      <div id="pointsMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Clientes registrados</h2>
+      <div id="clientsTableWrap"><div class="empty">Cargando…</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============ CONFIGURACIÓN DE FIREBASE ============
+// Reemplazá estos valores por los de TU proyecto de Firebase.
+// Los sacás en: Configuración del proyecto > Tus apps > SDK de Firebase.
+const firebaseConfig = {
+  apiKey: "AIzaSyDuocCLsrC3hHA3AyLGMX4QMWVa4UvncYw",
+  authDomain: "elrincondelmate.firebaseapp.com",
+  projectId: "elrincondelmate",
+  storageBucket: "elrincondelmate.firebasestorage.app",
+  messagingSenderId: "264331784068",
+  appId: "1:264331784068:web:6d8f779f863299f82db7d1"
+};
+// =====================================================
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const ADMIN_USER = "elrincondelmate";
+const ADMIN_PASS = "42712504";
+
+const REWARDS = [
+  { id: "10off", name: "10% de descuento", points: 1000 },
+  { id: "20off", name: "20% de descuento", points: 2000 },
+  { id: "2x1", name: "2x1 en producto seleccionado", points: 3000 }
+];
+
+let isAdmin = false;
+
+function showTab(tab){
+  document.getElementById('tabCliente').classList.toggle('active', tab==='cliente');
+  document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
+  document.getElementById('viewCliente').classList.toggle('hidden', tab!=='cliente');
+  if(tab==='admin'){
+    document.getElementById('viewCliente').classList.add('hidden');
+    if(isAdmin){
+      document.getElementById('viewAdminLogin').classList.add('hidden');
+      document.getElementById('viewAdminPanel').classList.remove('hidden');
+      cargarTablaClientes();
+    } else {
+      document.getElementById('viewAdminLogin').classList.remove('hidden');
+      document.getElementById('viewAdminPanel').classList.add('hidden');
+    }
+  } else {
+    document.getElementById('viewAdminLogin').classList.add('hidden');
+    document.getElementById('viewAdminPanel').classList.add('hidden');
+  }
+}
+
+function normPhone(p){
+  return (p||'').replace(/\D/g,'');
+}
+
+function loginAdmin(){
+  const u = document.getElementById('adminUser').value.trim();
+  const p = document.getElementById('adminPass').value;
+  const msg = document.getElementById('adminLoginMsg');
+  if(u === ADMIN_USER && p === ADMIN_PASS){
+    isAdmin = true;
+    msg.innerHTML = '';
+    document.getElementById('viewAdminLogin').classList.add('hidden');
+    document.getElementById('viewAdminPanel').classList.remove('hidden');
+    cargarTablaClientes();
+  } else {
+    msg.innerHTML = '<div class="msg err">Usuario o contraseña incorrectos.</div>';
+  }
+}
+
+function logoutAdmin(){
+  isAdmin = false;
+  document.getElementById('adminUser').value = '';
+  document.getElementById('adminPass').value = '';
+  showTab('admin');
+}
+
+async function getCliente(phone){
+  try{
+    const doc = await db.collection('clientes').doc(phone).get();
+    return doc.exists ? doc.data() : null;
+  } catch(e){
+    console.error(e);
+    return null;
+  }
+}
+
+async function setCliente(phone, data){
+  await db.collection('clientes').doc(phone).set(data);
+}
+
+async function buscarCliente(){
+  const phone = normPhone(document.getElementById('clientPhone').value);
+  const msg = document.getElementById('clientMsg');
+  const resultBox = document.getElementById('clientResult');
+  msg.innerHTML = '';
+  resultBox.classList.add('hidden');
+
+  if(!phone){
+    msg.innerHTML = '<div class="msg err">Ingresá un número de teléfono.</div>';
+    return;
+  }
+
+  const cliente = await getCliente(phone);
+  if(!cliente){
+    msg.innerHTML = '<div class="msg err">No encontramos ese teléfono. Pedile al mostrador que te registre.</div>';
+    return;
+  }
+
+  document.getElementById('clientPointsNum').textContent = cliente.puntos;
+  document.getElementById('clientNameLabel').textContent = cliente.nombre + ' ' + cliente.apellido + ' — puntos acumulados';
+
+  const list = document.getElementById('rewardsList');
+  list.innerHTML = '';
+  REWARDS.forEach(r => {
+    const unlocked = cliente.puntos >= r.points;
+    const div = document.createElement('div');
+    div.className = 'reward ' + (unlocked ? 'unlocked' : 'locked');
+    div.innerHTML = `
+      <div>
+        <div class="name">${r.name}</div>
+        <div class="need">${r.points} puntos</div>
+      </div>
+      <div class="status">${unlocked ? 'Disponible ✓' : 'Faltan ' + (r.points - cliente.puntos) + ' pts'}</div>
+    `;
+    list.appendChild(div);
+  });
+
+  resultBox.classList.remove('hidden');
+}
+
+async function registrarCliente(){
+  const nombre = document.getElementById('newNombre').value.trim();
+  const apellido = document.getElementById('newApellido').value.trim();
+  const phone = normPhone(document.getElementById('newTelefono').value);
+  const msg = document.getElementById('registerMsg');
+  msg.innerHTML = '';
+
+  if(!nombre || !apellido || !phone){
+    msg.innerHTML = '<div class="msg err">Completá nombre, apellido y teléfono.</div>';
+    return;
+  }
+
+  const existente = await getCliente(phone);
+  if(existente){
+    msg.innerHTML = '<div class="msg err">Ya existe un cliente con ese teléfono.</div>';
+    return;
+  }
+
+  await setCliente(phone, { nombre, apellido, puntos: 0 });
+  clientesCache = null;
+
+  msg.innerHTML = '<div class="msg ok">Cliente registrado correctamente.</div>';
+  document.getElementById('newNombre').value = '';
+  document.getElementById('newApellido').value = '';
+  document.getElementById('newTelefono').value = '';
+  cargarTablaClientes();
+}
+
+let clientesCache = null;
+let selectedPhone = null;
+
+async function getAllClientes(){
+  const snapshot = await db.collection('clientes').get();
+  const clientes = [];
+  snapshot.forEach(doc => clientes.push({ phone: doc.id, ...doc.data() }));
+  return clientes;
+}
+
+async function buscarSugerencias(){
+  const box = document.getElementById('suggestBox');
+  const raw = document.getElementById('pointsPhone').value.trim();
+  selectedPhone = null;
+
+  if(!raw){
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+
+  if(clientesCache === null){
+    clientesCache = await getAllClientes();
+  }
+
+  const rawDigits = normPhone(raw);
+  const rawLower = raw.toLowerCase();
+
+  const matches = clientesCache.filter(c => {
+    const fullName = (c.nombre + ' ' + c.apellido).toLowerCase();
+    const phoneMatch = rawDigits.length > 0 && c.phone.includes(rawDigits);
+    const nameMatch = fullName.includes(rawLower);
+    return phoneMatch || nameMatch;
+  }).slice(0, 8);
+
+  if(matches.length === 0){
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+
+  box.innerHTML = matches.map(c => `
+    <div class="suggest-item" onclick="elegirCliente('${c.phone}')">
+      <div class="sname">${c.nombre} ${c.apellido}</div>
+      <div class="sphone">${c.phone}</div>
+    </div>
+  `).join('');
+  box.classList.remove('hidden');
+}
+
+async function elegirCliente(phone){
+  const cliente = await getCliente(phone);
+  document.getElementById('pointsPhone').value = `${cliente.nombre} ${cliente.apellido} — ${phone}`;
+  selectedPhone = phone;
+  document.getElementById('suggestBox').classList.add('hidden');
+  document.getElementById('suggestBox').innerHTML = '';
+}
+
+document.addEventListener('click', function(e){
+  const box = document.getElementById('suggestBox');
+  const input = document.getElementById('pointsPhone');
+  if(box && !box.contains(e.target) && e.target !== input){
+    box.classList.add('hidden');
+  }
+});
+
+async function sumarPuntos(){
+  const phone = selectedPhone ? selectedPhone : normPhone(document.getElementById('pointsPhone').value);
+  const monto = parseFloat(document.getElementById('montoCompra').value) || 0;
+  const referidos = parseInt(document.getElementById('referidos').value) || 0;
+  const msg = document.getElementById('pointsMsg');
+  msg.innerHTML = '';
+
+  if(!phone){
+    msg.innerHTML = '<div class="msg err">Ingresá el teléfono del cliente.</div>';
+    return;
+  }
+
+  const cliente = await getCliente(phone);
+  if(!cliente){
+    msg.innerHTML = '<div class="msg err">No existe un cliente con ese teléfono. Registralo primero.</div>';
+    return;
+  }
+
+  const puntosPorMonto = Math.floor(monto / 1000) * 10;
+  const puntosPorReferidos = referidos * 5;
+  const totalSumado = puntosPorMonto + puntosPorReferidos;
+
+  if(totalSumado <= 0){
+    msg.innerHTML = '<div class="msg err">Ingresá un monto o cantidad de referidos válido.</div>';
+    return;
+  }
+
+  cliente.puntos += totalSumado;
+  await setCliente(phone, cliente);
+
+  msg.innerHTML = `<div class="msg ok">Se sumaron ${totalSumado} puntos a ${cliente.nombre} ${cliente.apellido}. Total: ${cliente.puntos} pts.</div>`;
+  document.getElementById('pointsPhone').value = '';
+  document.getElementById('montoCompra').value = '';
+  document.getElementById('referidos').value = '';
+  selectedPhone = null;
+  clientesCache = null;
+  cargarTablaClientes();
+}
+
+async function cargarTablaClientes(){
+  const wrap = document.getElementById('clientsTableWrap');
+  wrap.innerHTML = '<div class="empty">Cargando…</div>';
+
+  const clientes = await getAllClientes();
+  if(clientes.length === 0){
+    wrap.innerHTML = '<div class="empty">Todavía no hay clientes registrados.</div>';
+    return;
+  }
+
+  clientes.sort((a,b) => b.puntos - a.puntos);
+
+  let html = '<table><thead><tr><th>Nombre</th><th>Teléfono</th><th>Puntos</th><th></th></tr></thead><tbody>';
+  clientes.forEach(c => {
+    html += `<tr><td>${c.nombre} ${c.apellido}</td><td>${c.phone}</td><td>${c.puntos}</td><td><button class="claim" onclick="eliminarCliente('${c.phone}', '${(c.nombre + ' ' + c.apellido).replace(/'/g, "\\'")}')">Eliminar</button></td></tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function eliminarCliente(phone, nombreCompleto){
+  const confirmado = confirm(`¿Seguro que querés eliminar a ${nombreCompleto} (${phone})? Esta acción no se puede deshacer.`);
+  if(!confirmado) return;
+
+  await db.collection('clientes').doc(phone).delete();
+  clientesCache = null;
+  cargarTablaClientes();
+}
+</script>
+</body>
+</html>
