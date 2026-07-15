@@ -347,6 +347,23 @@
     </div>
 
     <div class="card">
+      <h2>Reclamar recompensa</h2>
+      <label for="claimPhone">Teléfono o nombre del cliente</label>
+      <div style="position:relative;">
+        <input id="claimPhone" type="text" placeholder="Ej: 2634567890 o Juan Pérez" autocomplete="off" oninput="buscarSugerenciasClaim()" onfocus="buscarSugerenciasClaim()" />
+        <div id="suggestBoxClaim" class="hidden"></div>
+      </div>
+      <div id="claimMsg"></div>
+      <div id="claimClientInfo" class="hidden">
+        <div class="points-display" style="padding:12px 0;">
+          <div class="num" id="claimPointsNum" style="font-size:36px;">0</div>
+          <div class="label" id="claimNameLabel">puntos</div>
+        </div>
+        <div class="rewards" id="claimRewardsList"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Clientes registrados</h2>
       <div id="clientsTableWrap"><div class="empty">Cargando…</div></div>
     </div>
@@ -570,6 +587,117 @@ async function elegirCliente(phone){
 document.addEventListener('click', function(e){
   const box = document.getElementById('suggestBox');
   const input = document.getElementById('pointsPhone');
+  if(box && !box.contains(e.target) && e.target !== input){
+    box.classList.add('hidden');
+  }
+});
+
+let claimSelectedPhone = null;
+
+async function buscarSugerenciasClaim(){
+  const box = document.getElementById('suggestBoxClaim');
+  const raw = document.getElementById('claimPhone').value.trim();
+  claimSelectedPhone = null;
+  document.getElementById('claimClientInfo').classList.add('hidden');
+  document.getElementById('claimMsg').innerHTML = '';
+
+  if(!raw){
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+
+  if(clientesCache === null){
+    clientesCache = await getAllClientes();
+  }
+
+  const rawDigits = normPhone(raw);
+  const rawLower = raw.toLowerCase();
+
+  const matches = clientesCache.filter(c => {
+    const fullName = (c.nombre + ' ' + c.apellido).toLowerCase();
+    const phoneMatch = rawDigits.length > 0 && c.phone.includes(rawDigits);
+    const nameMatch = fullName.includes(rawLower);
+    return phoneMatch || nameMatch;
+  }).slice(0, 8);
+
+  if(matches.length === 0){
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+
+  box.innerHTML = matches.map(c => `
+    <div class="suggest-item" onclick="elegirClienteClaim('${c.phone}')">
+      <div class="sname">${c.nombre} ${c.apellido}</div>
+      <div class="sphone">${c.phone}</div>
+    </div>
+  `).join('');
+  box.classList.remove('hidden');
+}
+
+async function elegirClienteClaim(phone){
+  const cliente = await getCliente(phone);
+  document.getElementById('claimPhone').value = `${cliente.nombre} ${cliente.apellido} — ${phone}`;
+  claimSelectedPhone = phone;
+  document.getElementById('suggestBoxClaim').classList.add('hidden');
+  document.getElementById('suggestBoxClaim').innerHTML = '';
+  mostrarInfoClaim(phone, cliente);
+}
+
+function mostrarInfoClaim(phone, cliente){
+  document.getElementById('claimPointsNum').textContent = cliente.puntos;
+  document.getElementById('claimNameLabel').textContent = cliente.nombre + ' ' + cliente.apellido + ' — puntos actuales';
+
+  const list = document.getElementById('claimRewardsList');
+  list.innerHTML = '';
+  REWARDS.forEach(r => {
+    const unlocked = cliente.puntos >= r.points;
+    const div = document.createElement('div');
+    div.className = 'reward ' + (unlocked ? 'unlocked' : 'locked');
+    div.innerHTML = `
+      <div>
+        <div class="name">${r.name}</div>
+        <div class="need">${r.points} puntos</div>
+      </div>
+      ${unlocked
+        ? `<button class="claim" onclick="reclamarRecompensa('${phone}', '${r.id}', ${r.points})">Reclamar</button>`
+        : `<div class="status">Faltan ${r.points - cliente.puntos} pts</div>`}
+    `;
+    list.appendChild(div);
+  });
+
+  document.getElementById('claimClientInfo').classList.remove('hidden');
+}
+
+async function reclamarRecompensa(phone, rewardId, rewardPoints){
+  const reward = REWARDS.find(r => r.id === rewardId);
+  const cliente = await getCliente(phone);
+  if(!cliente){
+    document.getElementById('claimMsg').innerHTML = '<div class="msg err">No se encontró el cliente.</div>';
+    return;
+  }
+  if(cliente.puntos < rewardPoints){
+    document.getElementById('claimMsg').innerHTML = '<div class="msg err">El cliente ya no tiene puntos suficientes.</div>';
+    mostrarInfoClaim(phone, cliente);
+    return;
+  }
+
+  const confirmado = confirm(`¿Confirmás canjear "${reward.name}" para ${cliente.nombre} ${cliente.apellido}? Se descontarán ${rewardPoints} puntos.`);
+  if(!confirmado) return;
+
+  cliente.puntos -= rewardPoints;
+  await setCliente(phone, cliente);
+  clientesCache = null;
+
+  document.getElementById('claimMsg').innerHTML = `<div class="msg ok">Recompensa "${reward.name}" canjeada. Puntos restantes: ${cliente.puntos}.</div>`;
+  mostrarInfoClaim(phone, cliente);
+  cargarTablaClientes();
+}
+
+document.addEventListener('click', function(e){
+  const box = document.getElementById('suggestBoxClaim');
+  const input = document.getElementById('claimPhone');
   if(box && !box.contains(e.target) && e.target !== input){
     box.classList.add('hidden');
   }
