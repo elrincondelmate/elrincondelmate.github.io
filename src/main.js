@@ -16,14 +16,19 @@ import {
   setDoc,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { adminEmail, auth, db, isFirebaseConfigured, previousDb } from "./firebase.js";
+import { catalogProducts } from "./catalog-products.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const currency = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
-const defaultSettings = { pesosPorPunto: 100, puntosReferido: 5, whatsapp: "", instagram: "@elrincondelmatesm", ubicacion: "San Martín, Mendoza", venceCupones: false, diasVencimiento: 30 };
+const defaultSettings = { pesosPorPunto: 100, puntosReferido: 5, whatsapp: "2634529421", whatsappSecundario: "2634518838", instagram: "@elrincondelmatesm", ubicacion: "San Martín, Mendoza", venceCupones: false, diasVencimiento: 30 };
 const defaultRewards = [
   { id: "10-porciento-yerba-500", nombre: "10% de descuento en yerba", puntos: 500, categoria: "yerba", descripcion: "Solo yerba", activo: true },
   { id: "10-porciento-otros-750", nombre: "10% de descuento en otros productos", puntos: 750, categoria: "otros", descripcion: "Otros productos", activo: true },
+  { id: "20-porciento-yerba-1000", nombre: "20% de descuento en yerba", puntos: 1000, categoria: "yerba", descripcion: "Solo yerba", activo: true },
+  { id: "20-porciento-otros-1500", nombre: "20% de descuento en otros productos", puntos: 1500, categoria: "otros", descripcion: "Otros productos", activo: true },
+  { id: "2x1-yerba-2000", nombre: "2×1 en yerba", puntos: 2000, categoria: "yerba", descripcion: "Solo yerba", activo: true },
+  { id: "2x1-otros-2250", nombre: "2×1 en otros productos", puntos: 2250, categoria: "otros", descripcion: "Otros productos", activo: true },
 ];
 
 const tabs = $$('[data-view]');
@@ -95,6 +100,10 @@ function clientName(data = {}) {
   return [data.nombre, data.apellido].filter(Boolean).join(" ").trim() || "Cliente";
 }
 
+function normalizeCatalogName(value) {
+  return String(value || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
+}
+
 function normalizeArgentinePhone(value) {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (/^\d{10}$/.test(digits)) return digits;
@@ -102,6 +111,13 @@ function normalizeArgentinePhone(value) {
   if (/^54\d{10}$/.test(digits)) return digits.slice(2);
   if (/^549\d{10}$/.test(digits)) return digits.slice(3);
   return null;
+}
+
+function normalizeWhatsAppNumber(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (/^\d{10}$/.test(digits)) return `549${digits}`;
+  if (/^549\d{10}$/.test(digits) || /^54\d{10}$/.test(digits)) return digits;
+  return "";
 }
 
 function timestampDate(value) {
@@ -117,8 +133,10 @@ function formatDate(value) {
 }
 
 function movementLabel(item) {
+  if (item.tipo === "compra" && item.anulada === true) return "Compra anulada";
   const labels = {
     compra: "Compra registrada",
+    compra_anulada: "Compra anulada; puntos reintegrados",
     canje: "Canje confirmado",
     cupon_emitido: "Cupón emitido",
     cupon_usado: "Cupón utilizado",
@@ -150,7 +168,7 @@ function movementPoints(item) {
 
 function addMovementRow(container, item, clientLookup = true) {
   const row = document.createElement("article");
-  row.className = "activity-row";
+  row.className = `activity-row ${item.anulada === true ? "is-cancelled" : ""}`;
   const details = document.createElement("div");
   details.className = "activity-main";
   const title = document.createElement("strong");
@@ -169,6 +187,14 @@ function addMovementRow(container, item, clientLookup = true) {
     points.className = `movement-points ${Number(item.puntos) < 0 ? "is-negative" : ""}`;
     points.textContent = amount;
     row.append(points);
+  }
+  if (item.tipo === "compra" && !item.anulada) {
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "text-button destructive-link movement-action";
+    cancel.textContent = "Anular compra";
+    cancel.addEventListener("click", () => cancelPurchase(item));
+    row.append(cancel);
   }
   container.append(row);
 }
@@ -297,7 +323,7 @@ function updateDashboard() {
   $("#stat-clients").textContent = String(clientsById.size);
   $("#stat-products").textContent = String([...productsById.values()].filter((product) => product.activo !== false && product.archivado !== true).length);
   const now = new Date();
-  const sales = historyItems.filter((item) => item.tipo === "compra")
+  const sales = historyItems.filter((item) => item.tipo === "compra" && item.anulada !== true)
     .filter((item) => {
       const date = timestampDate(item.creadoEn);
       return date && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
@@ -414,9 +440,9 @@ function renderProducts() {
     info.className = "record-info";
     const name = document.createElement("strong");
     name.textContent = product.nombre;
-    const status = product.archivado ? "quitado del catálogo" : product.activo === false ? "pausado" : "activo";
+    const status = product.archivado ? "quitado del catálogo" : product.precioPendiente ? "falta definir precio" : product.activo === false ? "pausado" : "activo";
     const detail = document.createElement("span");
-    detail.textContent = `${currency.format(Number(product.precio) || 0)} · ${status}`;
+    detail.textContent = `${product.precioPendiente ? "Precio pendiente" : currency.format(Number(product.precio) || 0)} · ${status}`;
     info.append(name, detail);
     const actions = document.createElement("div");
     actions.className = "record-actions";
@@ -429,7 +455,7 @@ function renderProducts() {
       if (priceInput === null) return;
       const newName = nameInput.trim(); const newPrice = Number(priceInput);
       if (!newName || !Number.isSafeInteger(newPrice) || newPrice < 1) { setMessage("#admin-status", "Revisá el nombre y el precio entero mayor a 0."); return; }
-      logProductUpdate(id, { nombre: newName, precio: newPrice }, "edición", `Producto actualizado: ${newName}`)
+      logProductUpdate(id, { nombre: newName, precio: newPrice, precioPendiente: false, ...(product.precioPendiente ? { activo: true } : {}) }, "edición", `Producto actualizado: ${newName}`)
         .then(loadProducts).catch(() => setMessage("#admin-status", "No se pudo actualizar el producto."));
     });
     actions.append(edit);
@@ -462,7 +488,42 @@ function renderProducts() {
   updatePurchaseSummary();
 }
 
-async function loadProducts() {
+async function seedCatalogProducts() {
+  const existing = await getDocs(collection(db, "productos"));
+  const knownNames = new Set(existing.docs.map((product) => normalizeCatalogName(product.data().nombre)));
+  const missing = catalogProducts.filter((product) => !knownNames.has(normalizeCatalogName(product.nombre)));
+  if (!missing.length) return 0;
+  const productRefs = missing.map(() => doc(collection(db, "productos")));
+  const movementRef = doc(collection(db, "movimientos"));
+  await runTransaction(db, async (transaction) => {
+    const snapshots = await Promise.all(productRefs.map((ref) => transaction.get(ref)));
+    let inserted = 0;
+    snapshots.forEach((snapshot, index) => {
+      if (snapshot.exists()) return;
+      const product = missing[index];
+      transaction.set(productRefs[index], {
+        ...product,
+        archivado: false,
+        origenCatalogo: product.categoria === "yerbas" ? "CATALOGO YERBAS.pdf" : "CATALOGO RINCON DEL MATE.pdf",
+        creadoEn: serverTimestamp(),
+      });
+      inserted += 1;
+    });
+    if (inserted) transaction.set(movementRef, {
+      tipo: "administracion",
+      descripcion: "Catálogo inicial importado desde los PDF del negocio",
+      detalle: `${inserted} productos agregados; los registros existentes se conservaron. Un producto quedó pausado porque el PDF no indica el precio.`,
+      cantidad: inserted,
+      creadoEn: serverTimestamp(),
+      creadoPor: auth.currentUser.uid,
+      creadoPorCorreo: auth.currentUser.email || adminEmail,
+    });
+  });
+  return missing.length;
+}
+
+async function loadProducts({ initializeCatalog = false } = {}) {
+  if (initializeCatalog) await seedCatalogProducts();
   const snapshot = await getDocs(collection(db, "productos"));
   productsById = new Map(snapshot.docs.map((product) => [product.id, product.data()]));
   renderProducts();
@@ -491,7 +552,7 @@ async function seedDefaultRewards() {
 
 async function loadRewards({ initializeDefaults = false } = {}) {
   let snapshot = await getDocs(collection(db, "recompensas"));
-  if (snapshot.empty && initializeDefaults) {
+  if (initializeDefaults) {
     await seedDefaultRewards();
     snapshot = await getDocs(collection(db, "recompensas"));
   }
@@ -580,19 +641,24 @@ async function loadSettings() {
 async function loadPublicBusinessInfo() {
   try {
     const snapshot = await getDoc(doc(db, "configuracionPublica", "negocio"));
-    const data = snapshot.exists() ? snapshot.data() : defaultSettings;
+    const data = snapshot.exists() ? { ...defaultSettings, ...snapshot.data() } : defaultSettings;
     const location = $("#business-location");
     const links = $("#business-links");
     const whatsapp = $("#whatsapp-link");
+    const whatsappSecondary = $("#whatsapp-secondary-link");
     const instagram = $("#instagram-link");
     location.textContent = data.ubicacion ? `Encontranos en ${data.ubicacion}.` : "";
-    const phone = String(data.whatsapp || "").replace(/\D/g, "");
-    whatsapp.href = phone ? `https://wa.me/${phone}?text=${encodeURIComponent("Hola, quería consultar sobre el Club de Puntos de El Rincón del Mate.")}` : "#";
+    const phone = normalizeWhatsAppNumber(data.whatsapp) || normalizeWhatsAppNumber(defaultSettings.whatsapp);
+    const secondaryPhone = normalizeWhatsAppNumber(data.whatsappSecundario);
+    const message = encodeURIComponent("Hola, quería consultar sobre el Club de Puntos de El Rincón del Mate.");
+    whatsapp.href = phone ? `https://wa.me/${phone}?text=${message}` : "#";
     whatsapp.hidden = !phone;
+    whatsappSecondary.href = secondaryPhone ? `https://wa.me/${secondaryPhone}?text=${message}` : "#";
+    whatsappSecondary.hidden = !secondaryPhone;
     const handle = String(data.instagram || "").trim().replace(/^@/, "");
     instagram.href = handle ? `https://www.instagram.com/${encodeURIComponent(handle)}/` : "#";
     instagram.hidden = !handle;
-    links.hidden = !phone && !handle;
+    links.hidden = !phone && !secondaryPhone && !handle;
   } catch {
     $("#business-location").textContent = "";
     $("#business-links").hidden = true;
@@ -605,6 +671,59 @@ async function loadHistory() {
     .sort((a, b) => (timestampDate(b.creadoEn)?.getTime() || 0) - (timestampDate(a.creadoEn)?.getTime() || 0));
   updateDashboard();
   renderHistory();
+}
+
+async function cancelPurchase(movement) {
+  const purchaseId = movement.referenciaId || movement.entidadId;
+  const clientId = movement.clienteId;
+  if (!purchaseId || !clientId) {
+    setMessage("#admin-status", "No se puede identificar la compra para anularla.");
+    return;
+  }
+  if (!confirm(`¿Anular esta compra? Se reintegrarán los puntos que sumó. El producto y la operación quedarán visibles como anulados en el historial.\n\n${movement.detalle || "Compra"}`)) return;
+  const purchaseRef = doc(db, "compras", purchaseId);
+  const clientRef = doc(db, "clientes", clientId);
+  const phone = normalizeArgentinePhone(clientId);
+  if (!phone) { setMessage("#admin-status", "El celular del cliente necesita revisión antes de corregir el saldo."); return; }
+  const publicRef = doc(db, "consultasPuntos", phone);
+  const movementRef = doc(db, "movimientos", movement.id);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const purchaseSnapshot = await transaction.get(purchaseRef);
+      const clientSnapshot = await transaction.get(clientRef);
+      await transaction.get(publicRef);
+      const movementSnapshot = await transaction.get(movementRef);
+      if (!purchaseSnapshot.exists() || !clientSnapshot.exists() || !movementSnapshot.exists()) throw new Error("missing-record");
+      if (purchaseSnapshot.data().estado === "anulada" || movementSnapshot.data().anulada === true) throw new Error("already-cancelled");
+      const points = Number(purchaseSnapshot.data().puntosSumados ?? movementSnapshot.data().puntos) || 0;
+      const current = Number(clientSnapshot.data().puntos) || 0;
+      if (current < points) throw new Error("points-spent");
+      const balance = current - points;
+      transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() });
+      transaction.set(publicRef, { puntos: balance });
+      transaction.update(purchaseRef, { estado: "anulada", anuladaEn: serverTimestamp(), anuladaPor: auth.currentUser.uid });
+      transaction.update(movementRef, { anulada: true, descripcion: "Compra anulada", actualizadoEn: serverTimestamp() });
+      await audit(transaction, {
+        tipo: "compra_anulada",
+        descripcion: "Compra anulada y puntos reintegrados",
+        entidad: "compra",
+        entidadId: purchaseId,
+        clienteId,
+        puntos: -points,
+        detalle: movement.detalle || "Compra de prueba anulada",
+        extras: { referenciaId: purchaseId },
+      });
+    });
+    setMessage("#admin-status", "Compra anulada. El saldo se corrigió y la acción quedó registrada.");
+    await Promise.all([loadClients(), loadHistory()]);
+  } catch (error) {
+    const message = error.message === "points-spent"
+      ? "No se puede anular: el cliente ya usó parte de esos puntos. Corregí el saldo desde Clientes con el motivo correspondiente."
+      : error.message === "already-cancelled"
+        ? "Esta compra ya había sido anulada."
+        : "No se pudo anular la compra. No se cambiaron los puntos.";
+    setMessage("#admin-status", message);
+  }
 }
 
 function renderHistory() {
@@ -860,7 +979,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     $("#admin-welcome").textContent = `Sesión: ${user.email}`;
     setMessage(authStatus, `Sesión iniciada: ${user.email}`);
     try {
-      await Promise.all([loadClients(), loadProducts(), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadCoupons()]);
+      await Promise.all([loadClients(), loadProducts({ initializeCatalog: true }), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadCoupons()]);
       showAdminPage("dashboard");
       setMessage("#admin-status", "Información cargada. Los cambios administrativos quedan anotados en el historial.");
     } catch { setMessage("#admin-status", "No se pudo cargar la información. Revisá las reglas de Firestore."); }
