@@ -17,7 +17,7 @@
         <p>Club de puntos</p>
       </header>
 
-      <nav class="tabs" aria-label="Secciones">
+      <nav class="tabs public-tabs" aria-label="Secciones">
         <button class="tab is-active" type="button" data-view="customer">Consultar puntos</button>
         <button class="tab" type="button" data-view="admin">Administrador</button>
       </nav>
@@ -32,7 +32,7 @@
             <p class="field-help" id="phone-help">Ingresá los 10 números, sin 0 ni 15.</p>
             <button class="button button-primary" id="lookup-button" type="submit" disabled>Consultar mis puntos</button>
           </form>
-          <p class="notice" id="customer-status" role="status">La consulta se habilitará cuando se configure Firebase.</p>
+          <p class="notice" id="customer-status" role="status">Conectando con Firebase…</p>
         </article>
         <article class="card points-card is-hidden" id="customer-account" hidden aria-live="polite">
           <div class="account-heading">
@@ -42,12 +42,21 @@
           <div class="points-total"><span id="customer-points">0</span><span>puntos</span></div>
           <h3>Recompensas</h3>
           <div id="customer-rewards" class="reward-list"></div>
+          <p class="notice">Para usar una recompensa, acercate al local. El historial de movimientos lo consulta el administrador.</p>
         </article>
-        <p class="how-it-works">Comprá <span>→</span> Sumá puntos <span>→</span> Canjeá recompensas</p>
+        <article class="card customer-help">
+          <h3>¿Cómo funciona?</h3>
+          <p class="how-it-works">Comprá <span>→</span> Sumá puntos <span>→</span> Canjeá recompensas en el local.</p>
+          <p id="business-location" class="notice"></p>
+          <div id="business-links" class="business-links" hidden>
+            <a id="whatsapp-link" class="button button-secondary" target="_blank" rel="noopener" hidden>Consultar por WhatsApp</a>
+            <a id="instagram-link" class="text-button" target="_blank" rel="noopener" hidden>Instagram</a>
+          </div>
+        </article>
       </section>
 
       <section class="view is-hidden" id="admin-view" aria-labelledby="admin-title" hidden>
-        <article class="card">
+        <article class="card" id="admin-login-card">
           <h2 id="admin-title">Acceso administrador</h2>
           <p class="intro">Ingresá con el correo administrador habilitado en Firebase.</p>
           <form id="admin-form">
@@ -57,7 +66,7 @@
             <input id="admin-password" name="password" type="password" autocomplete="current-password" required />
             <button class="button button-primary" type="submit" disabled>Ingresar</button>
           </form>
-          <p class="notice" id="auth-status" role="status">Firebase todavía no está configurado. No se acepta una contraseña local.</p>
+          <p class="notice" id="auth-status" role="status">Conectando con Firebase…</p>
           <div class="verification-step is-hidden" id="verification-step" hidden>
             <p class="notice">Para habilitar el panel, verificá el correo administrador.</p>
             <button class="button button-secondary" id="send-verification-button" type="button">Enviar correo de verificación</button>
@@ -65,67 +74,147 @@
             <button class="text-button" id="pending-signout-button" type="button">Cerrar sesión</button>
           </div>
         </article>
-        <article class="card admin-panel is-hidden" id="admin-panel" hidden>
-          <div class="account-heading"><h2>Administración</h2><button class="text-button" id="admin-signout" type="button">Cerrar sesión</button></div>
-          <section class="admin-section">
-            <h3>Clientes</h3>
-          <p class="intro">Importá los clientes del sistema anterior. Los originales no se borran y los clientes existentes no se reemplazan.</p>
-          <button class="button button-secondary" id="import-previous-clients" type="button">Importar clientes anteriores</button>
-          <p class="notice" id="import-status" role="status">La importación se ejecuta solo cuando la iniciás y confirmás.</p>
-            <form id="client-form" class="admin-form">
-              <label for="new-client-name">Nombre</label>
-              <input id="new-client-name" name="nombre" autocomplete="given-name" required />
-              <label for="new-client-surname">Apellido</label>
-              <input id="new-client-surname" name="apellido" autocomplete="family-name" required />
-              <label for="new-client-phone">Celular</label>
-              <input id="new-client-phone" name="phone" type="tel" inputmode="numeric" placeholder="2634567890" pattern="[0-9]{10}" maxlength="10" required />
-              <button class="button button-secondary" type="submit">Agregar cliente</button>
-            </form>
-          <div id="clients-list" class="clients-list"></div>
+
+        <section class="admin-panel is-hidden" id="admin-panel" hidden aria-label="Panel de administración">
+          <div class="admin-topbar">
+            <div><p class="eyebrow">Panel administrador</p><strong id="admin-welcome">El Rincón del Mate</strong></div>
+            <button class="text-button" id="admin-signout" type="button">Cerrar sesión</button>
+          </div>
+          <nav class="admin-nav" id="admin-navigation" aria-label="Secciones de administración">
+            <button class="admin-nav-button is-active" type="button" data-admin-page="dashboard" aria-current="page"><span aria-hidden="true">⌂</span><span>Inicio</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="clients"><span aria-hidden="true">♙</span><span>Clientes</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="products"><span aria-hidden="true">▦</span><span>Productos</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="purchases"><span aria-hidden="true">🛒</span><span>Compras</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="rewards"><span aria-hidden="true">🎁</span><span>Recompensas</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="coupons"><span aria-hidden="true">🎟</span><span>Cupones</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="history"><span aria-hidden="true">▤</span><span>Historial</span></button>
+            <button class="admin-nav-button" type="button" data-admin-page="settings"><span aria-hidden="true">⚙</span><span>Configuración</span></button>
+          </nav>
+          <p class="notice admin-notice" id="admin-status" role="status"></p>
+
+          <section class="admin-page" data-admin-section="dashboard">
+            <div class="page-heading"><div><p class="eyebrow">Resumen del negocio</p><h2>Inicio</h2></div></div>
+            <div class="stat-grid">
+              <article class="stat-card"><span>Clientes</span><strong id="stat-clients">0</strong></article>
+              <article class="stat-card"><span>Productos activos</span><strong id="stat-products">0</strong></article>
+              <article class="stat-card"><span>Ventas del mes</span><strong id="stat-sales">$0</strong></article>
+              <article class="stat-card"><span>Puntos en circulación</span><strong id="stat-points">0</strong></article>
+            </div>
+            <article class="card inner-card"><div class="section-title-row"><h3>Actividad reciente</h3><button class="text-button" type="button" data-go-page="history">Ver historial</button></div><div id="dashboard-history" class="activity-list"></div></article>
+            <article class="card inner-card"><h3>Atajos</h3><div class="quick-actions"><button class="button button-secondary" type="button" data-go-page="purchases">Registrar compra</button><button class="button button-secondary" type="button" data-go-page="clients">Agregar cliente</button><button class="button button-secondary" type="button" data-go-page="coupons">Crear cupón</button></div></article>
           </section>
 
-          <section class="admin-section">
-            <h3>Productos</h3>
-            <form id="product-form" class="admin-form">
-              <label for="product-name">Nombre del producto</label>
-              <input id="product-name" name="nombre" required />
-              <label for="product-price">Precio en pesos</label>
-              <input id="product-price" name="precio" type="number" min="1" step="1" inputmode="numeric" placeholder="11000" required />
-              <button class="button button-secondary" type="submit">Agregar producto</button>
-            </form>
-            <div id="products-list" class="clients-list"></div>
+          <section class="admin-page is-hidden" data-admin-section="clients" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Personas del club</p><h2>Clientes</h2></div></div>
+            <article class="card inner-card">
+              <h3>Importar clientes anteriores</h3><p class="intro">Copia los clientes del sistema anterior sin borrar ni sobrescribir los originales.</p>
+              <button class="button button-secondary" id="import-previous-clients" type="button">Importar clientes anteriores</button>
+              <p class="notice" id="import-status" role="status">La importación se ejecuta solo cuando la iniciás y confirmás.</p>
+            </article>
+            <article class="card inner-card">
+              <h3>Agregar cliente</h3>
+              <form id="client-form" class="admin-form two-column-form">
+                <label for="new-client-name">Nombre</label><input id="new-client-name" name="nombre" autocomplete="given-name" required />
+                <label for="new-client-surname">Apellido</label><input id="new-client-surname" name="apellido" autocomplete="family-name" required />
+                <label for="new-client-phone">Celular</label><input id="new-client-phone" name="phone" type="tel" inputmode="numeric" placeholder="2634567890" pattern="[0-9]{10}" maxlength="10" required />
+                <label for="new-client-referrer">Referido por (opcional)</label><select id="new-client-referrer"><option value="">Sin referido</option></select>
+                <button class="button button-secondary form-action" type="submit">Agregar cliente</button>
+              </form>
+            </article>
+            <article class="card inner-card">
+              <div class="section-title-row"><h3>Listado de clientes</h3><span class="count-badge" id="client-count">0</span></div>
+              <label for="client-search">Buscar por nombre o celular</label><input id="client-search" type="search" placeholder="Escribí para filtrar…" />
+              <div id="clients-list" class="record-list"></div>
+            </article>
+            <article class="card inner-card">
+              <h3>Ajustar puntos manualmente</h3><p class="field-help">Usalo para corregir un saldo; el motivo quedará registrado en el historial.</p>
+              <form id="adjust-points-form" class="admin-form">
+                <label for="adjust-client">Cliente</label><select id="adjust-client" required></select>
+                <label for="adjust-amount">Puntos a sumar o restar</label><input id="adjust-amount" type="number" step="1" required placeholder="Ej.: 20 o -20" />
+                <label for="adjust-reason">Motivo</label><input id="adjust-reason" maxlength="160" required />
+                <button class="button button-secondary" type="submit">Guardar ajuste</button>
+              </form>
+              <p class="notice" id="adjust-points-status" role="status"></p>
+            </article>
           </section>
 
-          <section class="admin-section">
-            <h3>Registrar compra</h3>
-            <form id="purchase-form" class="admin-form">
-              <label for="purchase-client">Cliente</label>
-              <select id="purchase-client" required></select>
-              <div id="purchase-lines" class="purchase-lines"></div>
-              <button class="button button-secondary" id="add-purchase-line" type="button">+ Agregar producto</button>
-              <div class="purchase-summary"><span>Total</span><strong id="purchase-total">$0</strong></div>
-              <div class="purchase-summary"><span>Puntos que suma</span><strong id="purchase-points">0</strong></div>
-              <p class="field-help">Se suma 1 punto cada $100 de compra.</p>
-              <button class="button button-primary" type="submit">Registrar compra</button>
-            </form>
-            <p class="notice" id="purchase-status" role="status"></p>
+          <section class="admin-page is-hidden" data-admin-section="products" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Catálogo del local</p><h2>Productos</h2></div></div>
+            <article class="card inner-card"><h3>Crear producto</h3>
+              <form id="product-form" class="admin-form two-column-form">
+                <label for="product-name">Nombre del producto</label><input id="product-name" name="nombre" required />
+                <label for="product-price">Precio en pesos</label><input id="product-price" name="precio" type="number" min="1" step="1" inputmode="numeric" placeholder="11000" required />
+                <button class="button button-secondary form-action" type="submit">Crear producto</button>
+              </form>
+            </article>
+            <article class="card inner-card"><div class="section-title-row"><h3>Catálogo</h3><span class="count-badge" id="product-count">0</span></div><label for="product-search">Buscar producto</label><input id="product-search" type="search" placeholder="Escribí para filtrar…" /><div id="products-list" class="record-list"></div></article>
           </section>
 
-          <section class="admin-section">
-            <h3>Confirmar canje en el local</h3>
-            <form id="redemption-form" class="admin-form">
-              <label for="redemption-client">Cliente presente</label>
-              <select id="redemption-client" required></select>
-              <label for="redemption-reward">Recompensa</label>
-              <select id="redemption-reward" required>
-                <option value="500">500 puntos — 10% en yerba</option>
-                <option value="750">750 puntos — 10% en otros productos</option>
-              </select>
-              <button class="button button-primary" type="submit">Confirmar canje</button>
-            </form>
-            <p class="notice" id="redemption-status" role="status">El administrador debe confirmar el canje con el cliente presente.</p>
+          <section class="admin-page is-hidden" data-admin-section="purchases" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Sumar puntos</p><h2>Registrar compra</h2></div></div>
+            <article class="card inner-card">
+              <form id="purchase-form" class="admin-form">
+                <label for="purchase-client">Cliente</label><select id="purchase-client" required></select>
+                <div id="purchase-lines" class="purchase-lines"></div>
+                <button class="button button-secondary" id="add-purchase-line" type="button">+ Agregar producto</button>
+                <div class="purchase-summary"><span>Total</span><strong id="purchase-total">$0</strong></div>
+                <div class="purchase-summary"><span>Puntos que suma</span><strong id="purchase-points">0</strong></div>
+                <p class="field-help" id="points-rule-help">Se suma 1 punto cada $100 de compra.</p>
+                <button class="button button-primary" type="submit">Registrar compra</button>
+              </form>
+              <p class="notice" id="purchase-status" role="status"></p>
+            </article>
           </section>
-        </article>
+
+          <section class="admin-page is-hidden" data-admin-section="rewards" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Beneficios del club</p><h2>Recompensas</h2></div></div>
+            <article class="card inner-card"><h3>Crear recompensa</h3>
+              <form id="reward-form" class="admin-form">
+                <label for="reward-name">Nombre</label><input id="reward-name" required placeholder="10% de descuento" />
+                <label for="reward-points">Puntos necesarios</label><input id="reward-points" type="number" min="1" step="1" required />
+                <label for="reward-category">Productos incluidos</label><select id="reward-category"><option value="yerba">Solo yerba</option><option value="otros">Otros productos</option><option value="todo">Todo el catálogo</option></select>
+                <label for="reward-description">Descripción para el cliente</label><input id="reward-description" maxlength="160" placeholder="Válida en compras en el local" />
+                <button class="button button-secondary" type="submit">Crear recompensa</button>
+              </form>
+              <p class="notice" id="reward-status" role="status"></p>
+            </article>
+            <article class="card inner-card"><h3>Recompensas disponibles</h3><div id="rewards-list" class="record-list"></div></article>
+          </section>
+
+          <section class="admin-page is-hidden" data-admin-section="coupons" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Canje en el local</p><h2>Cupones y canjes</h2></div></div>
+            <article class="card inner-card"><h3>Emitir cupón</h3><p class="intro">Se descuentan los puntos al emitirlo. Luego podés marcarlo como usado cuando el cliente lo presenta.</p>
+              <form id="coupon-form" class="admin-form">
+                <label for="coupon-client">Cliente presente</label><select id="coupon-client" required></select>
+                <label for="coupon-reward">Recompensa</label><select id="coupon-reward" required></select>
+                <button class="button button-primary" type="submit">Emitir cupón</button>
+              </form>
+              <p class="notice" id="coupon-status" role="status"></p>
+            </article>
+            <article class="card inner-card"><div class="section-title-row"><h3>Cupones emitidos</h3><label class="inline-filter"><input id="show-used-coupons" type="checkbox" /> Mostrar usados y anulados</label></div><div id="coupons-list" class="record-list"></div></article>
+          </section>
+
+          <section class="admin-page is-hidden" data-admin-section="history" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Registro de actividad</p><h2>Historial</h2></div></div>
+            <article class="card inner-card"><p class="intro">Acá quedan registradas las compras, canjes, ajustes y cambios de administración.</p><div class="history-filters"><label for="history-filter">Filtrar por actividad</label><select id="history-filter"><option value="todas">Todas</option><option value="compra">Compras</option><option value="canje">Canjes y cupones</option><option value="administracion">Cambios del panel</option><option value="ajuste">Ajustes de puntos</option></select><label for="history-search">Buscar por nombre, celular o detalle</label><input id="history-search" type="search" placeholder="Escribí para filtrar…" /></div><div id="history-list" class="activity-list"></div><p class="notice" id="history-status" role="status"></p></article>
+          </section>
+
+          <section class="admin-page is-hidden" data-admin-section="settings" hidden>
+            <div class="page-heading"><div><p class="eyebrow">Reglas y datos del negocio</p><h2>Configuración</h2></div></div>
+            <article class="card inner-card"><h3>Reglas de puntos</h3>
+              <form id="settings-form" class="admin-form">
+                <label for="settings-pesos-por-punto">Pesos por cada punto</label><input id="settings-pesos-por-punto" type="number" min="1" step="1" required />
+                <label for="settings-referidos">Puntos por referido (0 para desactivar)</label><input id="settings-referidos" type="number" min="0" step="1" required />
+                <label for="settings-whatsapp">WhatsApp del negocio (solo números)</label><input id="settings-whatsapp" type="tel" inputmode="numeric" placeholder="549…" />
+                <label for="settings-instagram">Instagram</label><input id="settings-instagram" placeholder="@elrincondelmatesm" />
+                <label for="settings-ubicacion">Ubicación</label><input id="settings-ubicacion" placeholder="San Martín, Mendoza" />
+                <label class="inline-filter"><input id="settings-coupon-expiry-enabled" type="checkbox" /> Los cupones vencen</label>
+                <label for="settings-coupon-expiry-days">Vencimiento después de (días)</label><input id="settings-coupon-expiry-days" type="number" min="1" step="1" />
+                <button class="button button-primary" type="submit">Guardar configuración</button>
+              </form><p class="notice" id="settings-status" role="status"></p>
+            </article>
+          </section>
+        </section>
       </section>
 
       <footer>El Rincón del Mate · Club de Puntos</footer>

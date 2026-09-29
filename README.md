@@ -1,41 +1,38 @@
 # El Rincón del Mate — Club de Puntos
 
-Primera etapa de la nueva página para GitHub Pages, HTML/CSS/JavaScript y Firebase en el plan gratuito Spark.
+Sitio estático publicado con GitHub Pages. Usa HTML, CSS, JavaScript y Firebase (Authentication y Firestore) en el plan Spark.
 
-## Qué incluye esta etapa
+## Pantalla del cliente
 
-- Consulta sencilla ingresando el celular argentino de 10 dígitos.
-- La consulta pública muestra únicamente el saldo y las recompensas disponibles.
-- Acceso de administración con Firebase Authentication (correo y contraseña) y verificación de correo.
-- Firestore permite buscar un documento por teléfono, pero bloquea el listado de todos los saldos y cualquier escritura pública.
-- El panel incluye una importación manual de clientes desde el proyecto anterior. Copia cada cliente al área privada y publica solo sus puntos; no borra datos de origen y no sobrescribe registros existentes.
-- Alta de clientes y productos desde el panel administrador; los productos se pueden pausar sin borrar su historial.
-- Registro de compras con varios productos y cantidades; suma 1 punto cada $100 y guarda compra, movimiento y saldo en una transacción.
-- Canje presencial confirmado por el administrador; descuenta los puntos y guarda el canje y movimiento en una transacción.
-- Recompensas visibles: 500 puntos para 10% en yerba y 750 puntos para 10% en otros productos.
+- Consulta puntos con el celular de 10 dígitos.
+- Muestra el saldo y las recompensas activas.
+- Los canjes se hacen en el local y los confirma el administrador.
+- El cliente no ve el historial de movimientos. La consulta por celular no comprueba que la persona sea dueña del número.
 
-La consulta por teléfono no verifica que la persona sea dueña del número. Quien conozca o adivine un celular puede consultar sus puntos. Por eso no se muestran nombre, teléfono ni historial en la vista pública. El cliente no puede canjear desde la página: el canje será presencial y deberá confirmarlo el administrador en una etapa posterior.
+## Panel de administración
 
-## Lo que todavía no está implementado
+El panel tiene navegación horizontal por Inicio, Clientes, Productos, Compras, Recompensas, Cupones, Historial y Configuración.
 
-Todavía no hay una pantalla de historial. La importación se ejecuta únicamente desde el panel administrador después de iniciar sesión y confirmar. Los documentos de origen permanecen intactos. Las compras y canjes actualizan `clientes/{id}`, `consultasPuntos/{celular}` y su registro de movimientos dentro de la misma transacción.
+- **Inicio:** clientes, productos activos, ventas del mes, puntos en circulación y actividad reciente.
+- **Clientes:** importación no destructiva desde la base anterior, alta, edición de nombre, pausa/reactivación, búsqueda, ajustes manuales de puntos con motivo y puntos automáticos al ingresar un referido.
+- **Productos:** alta, edición de nombre y precio, pausa/reactivación y retiro del catálogo. Retirar es un archivo lógico: conserva las compras anteriores.
+- **Compras:** varios productos por compra; cada $100 agrega 1 punto por defecto. Compra, saldo y movimiento se guardan juntos.
+- **Recompensas:** alta, edición de nombre y puntos, pausa/reactivación y retiro; el catálogo público muestra las activas.
+- **Cupones:** emisión con código y QR, descuento de puntos al emitir, confirmación de uso y anulación con reintegro.
+- **Historial:** compras, cupones, ajustes, importaciones y cambios de clientes, productos, recompensas y configuración.
+- **Configuración:** relación pesos/puntos, puntos por referido, contacto del negocio y vencimiento opcional de cupones. WhatsApp, Instagram y ubicación se publican únicamente como datos de contacto en `configuracionPublica/negocio`.
 
-## Configuración pendiente
+Los productos, clientes y recompensas retirados se conservan; no se borran físicamente. El historial de actividad es solo para administración.
 
-1. La app web ya está configurada para el proyecto `elrincondelmate-f1fa9`.
-2. El correo administrador está limitado a `elrincondelmatesm@gmail.com` en `src/firebase.js` y `firestore.rules`.
-3. En Authentication, habilitar correo/contraseña y crear el usuario administrador. Desde la página, iniciar sesión, enviar el enlace de verificación y confirmarlo. El panel se habilita solo después de verificar el correo.
-4. Publicar la versión más reciente de `firestore.rules` en el proyecto nuevo de Firebase; incluye permisos privados para productos, compras, canjes y movimientos.
-5. El dominio GitHub Pages ya está agregado a Authentication.
-6. Publicar la página en GitHub Pages; iniciar sesión, verificar el correo y ejecutar la importación desde el panel.
-7. Cargar el catálogo de productos, revisar los registros importados y probar compras y canjes antes de usar el sistema normalmente.
+## Firebase y publicación
 
-No copiar contraseñas ni claves privadas a ningún archivo. La configuración web Firebase es pública; la seguridad depende de Authentication y Firestore Rules.
+- Proyecto: `elrincondelmate-f1fa9`.
+- Administrador permitido: `elrincondelmatesm@gmail.com`; se exige correo verificado.
+- Firestore Rules: publicar `firestore.rules` en Firebase antes de publicar esta versión del sitio. La nueva app necesita permisos administrativos para sus colecciones privadas y lectura pública limitada a puntos por teléfono, recompensas y los datos de contacto del negocio.
+- GitHub Pages: publicar `index.html`, `styles.css` y `src/main.js`. Mantener `src/firebase.js` en su ruta actual; su configuración Firebase no cambió.
 
-## Costos
+## Costos y límites
 
-Esta versión no usa SMS ni Cloud Functions y no requiere vincular facturación. El proyecto permanece en Spark. Firestore tiene cuotas gratuitas; si se supera una cuota Spark, el servicio afectado puede detenerse hasta el siguiente ciclo. Revisar límites actuales en la consola Firebase.
+Esta versión no usa SMS ni Cloud Functions y no requiere vincular facturación. La creación del QR se hace en el navegador con la librería de código abierto qrcode, cargada desde jsDelivr. Firestore está sujeto a las cuotas gratuitas de Spark; si se supera una cuota, Firebase puede pausar el servicio hasta el siguiente ciclo.
 
-## Datos anteriores
-
-La página anterior está preservada fuera de la carpeta publicable en `work/repo-archive/legacy-index.html`. Su código público contenía una credencial administrativa; considerala comprometida y no la reutilices. El proyecto Firebase anterior se llama `elrincondelmate`; el proyecto nuevo y separado es `elrincondelmate-f1fa9`. La nueva página solo consulta el anterior durante la importación iniciada por el administrador.
+No se guardan contraseñas en el código. La configuración web de Firebase es pública; la seguridad de los datos privados depende de Authentication y las reglas de Firestore.
