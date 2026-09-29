@@ -12,6 +12,7 @@
   <body>
     <main class="app-shell">
       <header class="brand">
+        <time id="current-datetime" class="current-datetime" aria-label="Fecha y hora actual"></time>
         <div class="brand-mark" aria-hidden="true">🧉</div>
         <h1>El Rincón del Mate</h1>
         <p>Club de puntos</p>
@@ -42,7 +43,8 @@
           <div class="points-total"><span id="customer-points">0</span><span>puntos</span></div>
           <h3>Recompensas</h3>
           <div id="customer-rewards" class="reward-list"></div>
-          <p class="notice">Para usar una recompensa, acercate al local. El historial de movimientos lo consulta el administrador.</p>
+          <p class="notice">Podés solicitar una recompensa desde acá. El administrador la confirma cuando verifican tus datos en el local.</p>
+          <p id="reward-request-status" class="notice" role="status"></p>
         </article>
         <article class="card customer-help">
           <h3>¿Cómo funciona?</h3>
@@ -189,6 +191,7 @@
 
           <section class="admin-page is-hidden" data-admin-section="coupons" hidden>
             <div class="page-heading"><div><p class="eyebrow">Canje en el local</p><h2>Cupones y canjes</h2></div></div>
+            <article class="card inner-card"><div class="section-title-row"><h3>Solicitudes de clientes</h3><button id="refresh-redemption-requests" class="text-button" type="button">Actualizar</button></div><p class="intro">Verificá que la persona y su celular coincidan antes de aprobar. Al aprobar, se descuentan los puntos y se genera el cupón imprimible.</p><div id="redemption-requests" class="record-list"></div><p id="request-admin-status" class="notice" role="status"></p></article>
             <article class="card inner-card"><h3>Emitir cupón</h3><p class="intro">Se descuentan los puntos al emitirlo. Luego podés marcarlo como usado cuando el cliente lo presenta.</p>
               <form id="coupon-form" class="admin-form">
                 <label for="coupon-client">Cliente presente</label><select id="coupon-client" required></select>

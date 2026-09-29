@@ -23,6 +23,7 @@ button { color: inherit; }
 .brand-mark { position: relative; z-index: 1; display: grid; width: 58px; height: 58px; margin: 0 auto 9px; place-items: center; border: 1px solid #ffffff75; border-radius: 50%; background: #fffaf0e8; box-shadow: 0 4px 14px #1d342e45; font-size: 27px; }
 .brand h1 { position: relative; z-index: 1; margin: 0; color: #fffdf6; font-size: clamp(25px, 5vw, 36px); text-shadow: 0 2px 12px #1c332d7d; }
 .brand p { position: relative; z-index: 1; margin: 6px 0 0; color: #fff5dd; font-size: 12px; letter-spacing: .19em; text-transform: uppercase; }
+.current-datetime { position: absolute; z-index: 2; top: 14px; left: 16px; color: #fff8e8; font-family: Arial, sans-serif; font-size: 12px; font-variant-numeric: tabular-nums; text-align: left; text-shadow: 0 1px 5px #1c332d88; }
 .public-tabs { display: flex; justify-content: center; gap: 9px; margin-bottom: 20px; }
 .tab { padding: 9px 17px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); cursor: pointer; }
 .tab.is-active { border-color: var(--green); background: var(--green); color: white; }
@@ -56,6 +57,18 @@ input:focus, select:focus { outline: 3px solid #496a4030; border-color: var(--gr
 .reward-item { display: flex; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .reward-item span:first-child { font-weight: bold; }
 .reward-item span:last-child { color: var(--muted); font-size: 13px; text-align: right; }
+.reward-item .button { flex: 0 0 auto; margin: 0; padding: 7px 10px; font-size: 13px; }
+.request-row { align-items: center; }
+.coupon-print-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; width: min(100%, 520px); margin: 10px 0; padding: 20px; border: 3px solid #6d421c; background: #fffdf6; color: #633d1a; }
+.coupon-print-main { display: grid; gap: 6px; }
+.coupon-print-brand { margin: 0 0 2px; font-size: 12px; font-style: italic; letter-spacing: .06em; }
+.coupon-print-title { margin: 0; font-size: 27px; letter-spacing: .08em; }
+.coupon-print-reward { margin: 0; font-size: 19px; }
+.coupon-print-meta { display: grid; gap: 5px; margin-top: 8px; font-size: 14px; }
+.coupon-print-meta strong { font-size: 16px; }
+.coupon-print-side { display: grid; align-content: end; justify-items: center; gap: 7px; min-width: 100px; font-size: 11px; text-align: center; }
+.coupon-print-side .coupon-qr { width: 96px; height: 96px; }
+.coupon-print-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 .how-it-works { margin: 18px 0; color: var(--muted); text-align: center; }
 .how-it-works span { padding: 0 5px; color: var(--green); }
 .customer-help { margin-top: 16px; }
@@ -158,4 +171,13 @@ footer { margin: 26px 0 4px; color: var(--muted); font-size: 12px; text-align: c
   .account-heading { align-items: flex-start; }
   .catalog-links { grid-template-columns: 1fr; }
   .brand { border-radius: 20px; }
+}
+
+@media print {
+  body { min-width: auto; padding: 0; background: #fff; }
+  body * { visibility: hidden !important; }
+  .coupon-print-card.is-printing, .coupon-print-card.is-printing * { visibility: visible !important; }
+  .coupon-print-card.is-printing { position: absolute; top: 0; left: 0; width: 100%; margin: 0; box-shadow: none; break-inside: avoid; }
+  .coupon-print-actions { display: none !important; }
+  .coupon-print-state, .coupon-print-card .record-actions { display: none !important; }
 }
