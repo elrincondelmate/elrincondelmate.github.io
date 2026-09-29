@@ -7,6 +7,7 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -59,7 +60,17 @@ let rewardsById = new Map();
 let settings = { ...defaultSettings };
 let historyItems = [];
 let couponItems = [];
+let redemptionRequests = [];
+let currentCustomerPhone = "";
+const locallyRequestedRewards = new Set();
 let qrCodeModule;
+
+function updateClock() {
+  const clock = $("#current-datetime");
+  if (clock) clock.textContent = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());
+}
+updateClock();
+window.setInterval(updateClock, 30_000);
 
 function setMessage(selector, message) {
   const element = typeof selector === "string" ? $(selector) : selector;
@@ -219,23 +230,33 @@ async function audit(transaction, { tipo, descripcion, entidad, entidadId, clien
 function updatePublicClientRewards(points) {
   const rewardsList = $("#customer-rewards");
   rewardsList.replaceChildren();
-  const active = [...rewardsById.values()].filter((reward) => reward.activo !== false && reward.archivado !== true);
-  active.sort((a, b) => Number(a.puntos) - Number(b.puntos));
-  active.forEach((reward) => {
+  const active = [...rewardsById.entries()].filter(([, reward]) => reward.activo !== false && reward.archivado !== true);
+  active.sort((a, b) => Number(a[1].puntos) - Number(b[1].puntos));
+  active.forEach(([rewardId, reward]) => {
     const item = document.createElement("div");
     item.className = "reward-item";
     const name = document.createElement("span");
     name.textContent = reward.nombre;
     const progress = document.createElement("span");
     const needed = Number(reward.puntos) || 0;
-    progress.textContent = points >= needed ? "Disponible en el local" : `Faltan ${needed - points} puntos`;
+    progress.textContent = points >= needed ? "Disponible" : `Faltan ${needed - points} puntos`;
     item.append(name, progress);
+    if (points >= needed && currentCustomerPhone) {
+      const requestButton = document.createElement("button");
+      requestButton.type = "button";
+      requestButton.className = "button button-secondary";
+      requestButton.textContent = locallyRequestedRewards.has(rewardId) ? "Solicitud enviada" : "Solicitar";
+      requestButton.disabled = locallyRequestedRewards.has(rewardId);
+      requestButton.addEventListener("click", () => submitRedemptionRequest(currentCustomerPhone, rewardId, reward));
+      item.append(requestButton);
+    }
     rewardsList.append(item);
   });
   if (!active.length) rewardsList.textContent = "Pronto habrá nuevas recompensas.";
 }
 
-function showCustomerAccount(points) {
+function showCustomerAccount(points, phone) {
+  currentCustomerPhone = phone;
   customerForm.hidden = true;
   customerAccount.hidden = false;
   customerAccount.classList.remove("is-hidden");
@@ -245,9 +266,32 @@ function showCustomerAccount(points) {
 }
 
 function hideCustomerAccount() {
+  currentCustomerPhone = "";
   customerForm.hidden = false;
   customerAccount.hidden = true;
   customerAccount.classList.add("is-hidden");
+}
+
+async function submitRedemptionRequest(phone, rewardId, reward) {
+  const status = $("#reward-request-status");
+  status.textContent = "Enviando solicitud…";
+  try {
+    await addDoc(collection(db, "solicitudesCanje"), {
+      clienteId: phone,
+      recompensaId: rewardId,
+      recompensaNombre: reward.nombre,
+      puntos: Number(reward.puntos),
+      estado: "solicitado",
+      creadoEn: serverTimestamp(),
+    });
+    locallyRequestedRewards.add(rewardId);
+    updatePublicClientRewards(Number($("#customer-points").textContent) || 0);
+    status.textContent = "Solicitud enviada. Acercate al local con este celular; el administrador verificará tus datos y, si la aprueba, emitirá tu cupón.";
+  } catch (error) {
+    status.textContent = error.code === "permission-denied"
+      ? "No se pudo enviar. Puede faltar publicar las nuevas reglas de Firestore."
+      : "No se pudo enviar la solicitud. Revisá tu conexión e intentá de nuevo.";
+  }
 }
 
 function updateSelectOptions(select, options, placeholder, render) {
@@ -412,6 +456,7 @@ async function loadClients() {
   clientsById = new Map(snapshot.docs.map((client) => [client.id, client.data()]));
   updateClientChoices();
   renderClients();
+  renderRedemptionRequests();
   updateDashboard();
 }
 
@@ -749,6 +794,144 @@ async function loadCoupons() {
   renderCoupons();
 }
 
+async function loadRedemptionRequests() {
+  const snapshot = await getDocs(collection(db, "solicitudesCanje"));
+  redemptionRequests = snapshot.docs.map((request) => ({ id: request.id, ...request.data() }))
+    .sort((a, b) => (timestampDate(b.creadoEn)?.getTime() || 0) - (timestampDate(a.creadoEn)?.getTime() || 0));
+  renderRedemptionRequests();
+}
+
+function renderRedemptionRequests() {
+  const list = $("#redemption-requests");
+  if (!list) return;
+  list.replaceChildren();
+  const pending = redemptionRequests.filter((request) => request.estado === "solicitado");
+  if (!pending.length) { list.textContent = "No hay solicitudes pendientes."; return; }
+  pending.forEach((request) => {
+    const row = document.createElement("article");
+    row.className = "record-row request-row";
+    const info = document.createElement("div");
+    info.className = "record-info";
+    const title = document.createElement("strong");
+    title.textContent = request.recompensaNombre || "Solicitud de recompensa";
+    const detail = document.createElement("span");
+    const client = clientsById.get(request.clienteId);
+    detail.textContent = `${client ? clientName(client) : "Cliente"} · ${request.clienteId} · ${request.puntos} puntos · ${formatDate(request.creadoEn)}`;
+    info.append(title, detail);
+    const actions = document.createElement("div");
+    actions.className = "record-actions";
+    const approve = document.createElement("button");
+    approve.type = "button"; approve.className = "button button-primary"; approve.textContent = "Verificar y aprobar";
+    approve.addEventListener("click", () => approveRedemptionRequest(request));
+    const deny = document.createElement("button");
+    deny.type = "button"; deny.className = "text-button destructive-link"; deny.textContent = "Rechazar";
+    deny.addEventListener("click", () => rejectRedemptionRequest(request));
+    actions.append(approve, deny);
+    row.append(info, actions);
+    list.append(row);
+  });
+}
+
+async function approveRedemptionRequest(request) {
+  const client = clientsById.get(request.clienteId);
+  if (!client || !confirm(`Confirmá en el local que el celular y la persona coinciden. Aprobar ${request.recompensaNombre} para ${clientName(client)} (${request.clienteId}) y descontar ${request.puntos} puntos?`)) return;
+  const phone = normalizeArgentinePhone(request.clienteId);
+  if (!phone) { setMessage("#request-admin-status", "El celular de esta solicitud necesita revisión."); return; }
+  const code = createCouponCode();
+  const requestRef = doc(db, "solicitudesCanje", request.id);
+  const clientRef = doc(db, "clientes", request.clienteId);
+  const publicRef = doc(db, "consultasPuntos", phone);
+  const rewardRef = doc(db, "recompensas", request.recompensaId);
+  const couponRef = doc(db, "cupones", code);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const requestSnapshot = await transaction.get(requestRef);
+      const clientSnapshot = await transaction.get(clientRef);
+      const publicSnapshot = await transaction.get(publicRef);
+      const rewardSnapshot = await transaction.get(rewardRef);
+      const couponSnapshot = await transaction.get(couponRef);
+      if (!requestSnapshot.exists() || requestSnapshot.data().estado !== "solicitado") throw new Error("request-closed");
+      if (!clientSnapshot.exists() || !publicSnapshot.exists() || !rewardSnapshot.exists()) throw new Error("missing-record");
+      if (clientSnapshot.data().activo === false || rewardSnapshot.data().activo === false || rewardSnapshot.data().archivado) throw new Error("inactive-record");
+      if (couponSnapshot.exists()) throw new Error("duplicate-code");
+      const pointsCost = Number(rewardSnapshot.data().puntos);
+      const pointsNow = Number(clientSnapshot.data().puntos);
+      if (!Number.isSafeInteger(pointsCost) || !Number.isSafeInteger(pointsNow) || pointsNow < pointsCost || pointsCost !== Number(requestSnapshot.data().puntos)) throw new Error("insufficient-points");
+      const balance = pointsNow - pointsCost;
+      const rewardName = rewardSnapshot.data().nombre;
+      const expiryDate = settings.venceCupones ? new Date(Date.now() + Math.max(1, Number(settings.diasVencimiento) || 30) * 86400000) : null;
+      transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() });
+      transaction.set(publicRef, { puntos: balance });
+      transaction.update(requestRef, { estado: "aprobada", aprobadoEn: serverTimestamp(), aprobadoPor: auth.currentUser.uid, cuponId: code });
+      transaction.set(couponRef, {
+        codigo: code, clienteId: request.clienteId, clienteNombre: clientName(client), recompensaId: request.recompensaId,
+        recompensaNombre: rewardName, puntos: pointsCost, puntosDisponibles: balance, categoria: rewardSnapshot.data().categoria || "",
+        estado: "pendiente", solicitudId: request.id, creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid,
+        ...(expiryDate ? { venceEn: expiryDate } : {}),
+      });
+      await audit(transaction, { tipo: "cupon_emitido", descripcion: `Solicitud aprobada; cupón ${code} emitido`, entidad: "cupon", entidadId: code, clienteId: request.clienteId, puntos: -pointsCost, detalle: rewardName, extras: { referenciaId: code, solicitudId: request.id } });
+    });
+    setMessage("#request-admin-status", `Aprobada. Se emitió el cupón ${code}; imprimilo desde la lista de cupones.`);
+    await Promise.all([loadClients(), loadRedemptionRequests(), loadCoupons(), loadHistory()]);
+  } catch (error) {
+    setMessage("#request-admin-status", ({
+      "request-closed": "La solicitud ya fue atendida.",
+      "missing-record": "No encontramos el cliente o la recompensa.",
+      "inactive-record": "El cliente o la recompensa están pausados.",
+      "duplicate-code": "No se pudo crear un código único; volvé a intentar.",
+      "insufficient-points": "El cliente ya no tiene los puntos necesarios o la recompensa cambió.",
+    })[error.message] || `No se pudo aprobar (${error.code || "error de Firebase"}). No se descontaron puntos.`);
+  }
+}
+
+async function rejectRedemptionRequest(request) {
+  if (!confirm(`¿Rechazar la solicitud de ${request.recompensaNombre} para el celular ${request.clienteId}? No se descontarán puntos.`)) return;
+  const ref = doc(db, "solicitudesCanje", request.id);
+  const movementRef = doc(collection(db, "movimientos"));
+  try {
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists() || snapshot.data().estado !== "solicitado") throw new Error("request-closed");
+      transaction.update(ref, { estado: "rechazada", rechazadaEn: serverTimestamp(), rechazadaPor: auth.currentUser.uid });
+      transaction.set(movementRef, { tipo: "administracion", descripcion: `Solicitud de canje rechazada: ${request.recompensaNombre}`, entidad: "solicitud_canje", entidadId: request.id, clienteId: request.clienteId, puntos: 0, creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid });
+    });
+    await Promise.all([loadRedemptionRequests(), loadHistory()]);
+    setMessage("#request-admin-status", "Solicitud rechazada; no se descontaron puntos.");
+  } catch { setMessage("#request-admin-status", "No se pudo rechazar; actualizá las solicitudes y revisá su estado."); }
+}
+
+function makeCouponCard(coupon) {
+  const card = document.createElement("article");
+  card.className = "coupon-print-card";
+  const main = document.createElement("div"); main.className = "coupon-print-main";
+  const brand = document.createElement("p"); brand.className = "coupon-print-brand"; brand.textContent = "El Rincón del Mate";
+  const title = document.createElement("h3"); title.className = "coupon-print-title"; title.textContent = "CUPÓN";
+  const reward = document.createElement("h4"); reward.className = "coupon-print-reward"; reward.textContent = coupon.recompensaNombre || "Recompensa";
+  const detail = document.createElement("div"); detail.className = "coupon-print-meta";
+  const name = document.createElement("strong"); name.textContent = coupon.clienteNombre || clientName(clientsById.get(coupon.clienteId) || {});
+  const phone = document.createElement("span"); phone.textContent = `Celular: ${coupon.clienteId || ""}`;
+  const spent = document.createElement("span"); spent.textContent = `Puntos gastados: ${coupon.puntos || 0}`;
+  const remaining = document.createElement("span"); remaining.textContent = `Puntos disponibles: ${coupon.puntosDisponibles ?? "—"}`;
+  const date = document.createElement("span"); date.textContent = `Emitido: ${formatDate(coupon.creadoEn)}`;
+  detail.append(name, phone, spent, remaining, date);
+  main.append(brand, title, reward, detail);
+  const side = document.createElement("div"); side.className = "coupon-print-side";
+  const code = document.createElement("strong"); code.textContent = `Código: ${coupon.codigo || coupon.id}`;
+  const qr = document.createElement("canvas"); qr.className = "coupon-qr"; qr.setAttribute("aria-label", `Código QR del cupón ${coupon.codigo || coupon.id}`);
+  drawCouponQr(qr, coupon.codigo || coupon.id);
+  side.append(code, qr, document.createTextNode("Presentar en el local"));
+  const actions = document.createElement("div"); actions.className = "coupon-print-actions";
+  const print = document.createElement("button"); print.type = "button"; print.className = "button button-secondary"; print.textContent = "Imprimir cupón";
+  print.addEventListener("click", () => {
+    $$(".coupon-print-card.is-printing").forEach((item) => item.classList.remove("is-printing"));
+    card.classList.add("is-printing");
+    window.addEventListener("afterprint", () => card.classList.remove("is-printing"), { once: true });
+    window.print();
+  }); actions.append(print);
+  card.append(main, side, actions);
+  return card;
+}
+
 function renderCoupons() {
   const list = $("#coupons-list");
   if (!list) return;
@@ -757,16 +940,9 @@ function renderCoupons() {
   const coupons = couponItems.filter((coupon) => showAll || coupon.estado === "pendiente");
   if (!coupons.length) { list.textContent = "No hay cupones para mostrar."; return; }
   coupons.forEach((coupon) => {
-    const row = document.createElement("article"); row.className = "record-row coupon-row";
-    const info = document.createElement("div"); info.className = "record-info";
-    const code = document.createElement("strong"); code.className = "coupon-code"; code.textContent = coupon.codigo || coupon.id;
     const status = coupon.estado === "pendiente" && coupon.venceEn && timestampDate(coupon.venceEn) < new Date() ? "vencido" : coupon.estado;
-    const detail = document.createElement("span"); detail.textContent = `${coupon.clienteNombre || clientName(clientsById.get(coupon.clienteId) || {})} · ${coupon.recompensaNombre} · ${coupon.puntos} puntos · ${status} · ${formatDate(coupon.creadoEn)}`;
-    info.append(code, detail);
-    const qr = document.createElement("canvas");
-    qr.className = "coupon-qr";
-    qr.setAttribute("aria-label", `Código QR del cupón ${coupon.codigo || coupon.id}`);
-    drawCouponQr(qr, coupon.codigo || coupon.id);
+    const card = makeCouponCard(coupon);
+    const state = document.createElement("p"); state.className = "notice coupon-print-state"; state.textContent = `Estado: ${status}`; card.append(state);
     const actions = document.createElement("div"); actions.className = "record-actions";
     if (coupon.estado === "pendiente") {
       const used = document.createElement("button"); used.type = "button"; used.className = "text-button"; used.textContent = "Marcar usado";
@@ -775,7 +951,7 @@ function renderCoupons() {
       cancel.addEventListener("click", () => cancelCoupon(coupon));
       actions.append(used, cancel);
     }
-    row.append(info, qr, actions); list.append(row);
+    card.append(actions); list.append(card);
   });
 }
 
@@ -831,7 +1007,7 @@ async function issueCoupon(event) {
       transaction.set(publicRef, { puntos: newBalance });
       transaction.set(couponRef, {
         codigo: code, clienteId: clientId, clienteNombre: clientName(client), recompensaId: rewardId,
-        recompensaNombre: currentReward.nombre, puntos: pointsCost, categoria: currentReward.categoria || "",
+        recompensaNombre: currentReward.nombre, puntos: pointsCost, puntosDisponibles: newBalance, categoria: currentReward.categoria || "",
         estado: "pendiente", creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid,
         ...(expiryDate ? { venceEn: expiryDate } : {}),
       });
@@ -847,7 +1023,7 @@ async function issueCoupon(event) {
       "duplicate-code": "El código ya existe. Intentá emitirlo de nuevo.",
       "inactive-reward": "Esa recompensa está pausada o fue quitada.",
       "insufficient-points": "El cliente no tiene puntos suficientes para esa recompensa.",
-    })[error.message] || "No se pudo emitir el cupón; no se aplicaron cambios.";
+    })[error.message] || `No se pudo emitir el cupón (${error.code || "error de Firebase"}); no se aplicaron cambios.`;
   }
 }
 
@@ -952,7 +1128,9 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
       if (!snapshot.exists()) { setMessage(customerStatus, "No encontramos puntos asociados a ese celular. Consultá en el local."); return; }
       rewardsById = new Map(rewardsSnapshot.docs.filter((reward) => reward.data().activo !== false).map((reward) => [reward.id, reward.data()]));
       if (!rewardsById.size) defaultRewards.forEach(({ id, ...reward }) => rewardsById.set(id, reward));
-      showCustomerAccount(Number(snapshot.data().puntos) || 0);
+      locallyRequestedRewards.clear();
+      $("#reward-request-status").textContent = "";
+      showCustomerAccount(Number(snapshot.data().puntos) || 0, phone);
       setMessage(customerStatus, "Para usar una recompensa, acercate al local.");
     } catch { setMessage(customerStatus, "No pudimos consultar ahora. Intentá de nuevo más tarde."); }
     finally { button.disabled = false; }
@@ -979,7 +1157,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     $("#admin-welcome").textContent = `Sesión: ${user.email}`;
     setMessage(authStatus, `Sesión iniciada: ${user.email}`);
     try {
-      await Promise.all([loadClients(), loadProducts({ initializeCatalog: true }), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadCoupons()]);
+      await Promise.all([loadClients(), loadProducts({ initializeCatalog: true }), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadCoupons(), loadRedemptionRequests()]);
       showAdminPage("dashboard");
       setMessage("#admin-status", "Información cargada. Los cambios administrativos quedan anotados en el historial.");
     } catch { setMessage("#admin-status", "No se pudo cargar la información. Revisá las reglas de Firestore."); }
@@ -1137,6 +1315,12 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
 
   redemptionForm.addEventListener("submit", issueCoupon);
   $("#show-used-coupons").addEventListener("change", renderCoupons);
+  $("#refresh-redemption-requests").addEventListener("click", async () => {
+    const button = $("#refresh-redemption-requests"); button.disabled = true;
+    try { await loadRedemptionRequests(); setMessage("#request-admin-status", "Solicitudes actualizadas."); }
+    catch (error) { setMessage("#request-admin-status", `No se pudieron cargar las solicitudes (${error.code || "error de Firebase"}).`); }
+    finally { button.disabled = false; }
+  });
   $("#history-filter").addEventListener("change", renderHistory);
   $("#history-search").addEventListener("input", renderHistory);
 } else {
