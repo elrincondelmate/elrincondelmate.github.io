@@ -1268,8 +1268,9 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     const phone = normalizeArgentinePhone(clientId); if (!phone) { setMessage(purchaseStatus, "El celular del cliente necesita revisión antes de registrar la compra."); return; }
     const purchaseRef = doc(collection(db, "compras")); const clientRef = doc(db, "clientes", clientId); const publicRef = doc(db, "consultasPuntos", phone);
     const button = $("button[type='submit']", purchaseForm); button.disabled = true; setMessage(purchaseStatus, "Registrando compra…");
+    let result;
     try {
-      const result = await runTransaction(db, async (transaction) => {
+      result = await runTransaction(db, async (transaction) => {
         const clientSnapshot = await transaction.get(clientRef); await transaction.get(publicRef);
         const productSnapshots = new Map();
         for (const line of lines) if (!productSnapshots.has(line.productId)) productSnapshots.set(line.productId, await transaction.get(doc(db, "productos", line.productId)));
@@ -1289,11 +1290,23 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         await audit(transaction, { tipo: "compra", descripcion: "Compra registrada", entidad: "compra", entidadId: purchaseRef.id, clienteId, puntos: gained, detalle: `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`, extras: { importe: total, referenciaId: purchaseRef.id } });
         return { total, gained, balance };
       });
-      setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
-      purchaseLines.replaceChildren(); addPurchaseLine(); await Promise.all([loadClients(), loadHistory()]);
     } catch (error) {
-      setMessage(purchaseStatus, ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message] || "No se pudo registrar la compra; no se aplicaron cambios.");
+      const knownError = ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message];
+      const code = String(error.code || "").replace(/^firestore\//, "");
+      const detail = code === "permission-denied"
+        ? "Firebase denegó el permiso. Revisá que hayas iniciado sesión como administradora y que las reglas estén publicadas."
+        : code ? `Firebase informó: ${code}.` : "";
+      setMessage(purchaseStatus, knownError || `No se pudo guardar la compra.${detail ? ` ${detail}` : " Revisá tu conexión e intentá de nuevo."}`);
+      return;
     } finally { button.disabled = false; }
+    setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
+    purchaseLines.replaceChildren(); addPurchaseLine();
+    try {
+      await Promise.all([loadClients(), loadHistory()]);
+    } catch (error) {
+      console.error("La compra se guardó, pero no se pudo actualizar la pantalla.", error);
+      setMessage(purchaseStatus, `La compra sí quedó registrada (+${result.gained} puntos). No se pudo actualizar la pantalla; recargala antes de volver a intentarlo.`);
+    }
   });
 
   $("#adjust-points-form").addEventListener("submit", async (event) => {
