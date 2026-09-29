@@ -753,7 +753,7 @@ async function cancelPurchase(movement) {
         descripcion: "Compra anulada y puntos reintegrados",
         entidad: "compra",
         entidadId: purchaseId,
-        clienteId,
+        clienteId: clientId,
         puntos: -points,
         detalle: movement.detalle || "Compra de prueba anulada",
         extras: { referenciaId: purchaseId },
@@ -1011,7 +1011,7 @@ async function issueCoupon(event) {
         estado: "pendiente", creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid,
         ...(expiryDate ? { venceEn: expiryDate } : {}),
       });
-      await audit(transaction, { tipo: "cupon_emitido", descripcion: `Cupón ${code} emitido`, entidad: "cupon", entidadId: code, clienteId, puntos: -pointsCost, detalle: currentReward.nombre, extras: { referenciaId: code } });
+      await audit(transaction, { tipo: "cupon_emitido", descripcion: `Cupón ${code} emitido`, entidad: "cupon", entidadId: code, clienteId: clientId, puntos: -pointsCost, detalle: currentReward.nombre, extras: { referenciaId: code } });
     });
     status.textContent = `Cupón ${code} emitido. Los puntos ya se descontaron; presentalo en el local para marcarlo como usado.`;
     redemptionForm.reset();
@@ -1287,7 +1287,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         const gained = Math.floor(total / (Number(settings.pesosPorPunto) || 100)); const balance = currentPoints + gained;
         transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() }); transaction.set(publicRef, { puntos: balance });
         transaction.set(purchaseRef, { clienteId: clientId, items, total, puntosSumados: gained, creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid });
-        await audit(transaction, { tipo: "compra", descripcion: "Compra registrada", entidad: "compra", entidadId: purchaseRef.id, clienteId, puntos: gained, detalle: `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`, extras: { importe: total, referenciaId: purchaseRef.id } });
+        await audit(transaction, { tipo: "compra", descripcion: "Compra registrada", entidad: "compra", entidadId: purchaseRef.id, clienteId: clientId, puntos: gained, detalle: `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`, extras: { importe: total, referenciaId: purchaseRef.id } });
         return { total, gained, balance };
       });
     } catch (error) {
@@ -1322,7 +1322,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         if (!clientSnapshot.exists()) throw new Error("missing-client");
         const current = Number(clientSnapshot.data().puntos) || 0; const balance = current + amount; if (balance < 0) throw new Error("negative-balance");
         transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() }); transaction.set(publicRef, { puntos: balance });
-        await audit(transaction, { tipo: "ajuste_puntos", descripcion: "Ajuste manual de puntos", entidad: "cliente", entidadId: clientId, clienteId, puntos: amount, detalle: reason });
+        await audit(transaction, { tipo: "ajuste_puntos", descripcion: "Ajuste manual de puntos", entidad: "cliente", entidadId: clientId, clienteId: clientId, puntos: amount, detalle: reason });
       });
       $("#adjust-points-form").reset(); setMessage("#adjust-points-status", "Ajuste guardado en el historial."); await Promise.all([loadClients(), loadHistory()]);
     } catch (error) { setMessage("#adjust-points-status", error.message === "negative-balance" ? "El saldo no puede quedar por debajo de 0." : "No se pudo ajustar el saldo."); }
