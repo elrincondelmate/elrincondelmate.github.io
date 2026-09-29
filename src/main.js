@@ -288,9 +288,9 @@ async function submitRedemptionRequest(phone, rewardId, reward) {
     updatePublicClientRewards(Number($("#customer-points").textContent) || 0);
     status.textContent = "Solicitud enviada. Acercate al local con este celular; el administrador verificará tus datos y, si la aprueba, emitirá tu cupón.";
   } catch (error) {
-    status.textContent = error.code === "permission-denied"
-      ? "No se pudo enviar. Puede faltar publicar las nuevas reglas de Firestore."
-      : "No se pudo enviar la solicitud. Revisá tu conexión e intentá de nuevo.";
+    console.error("Error al enviar la solicitud de recompensa:", error);
+    const detail = String(error.code || error.message || "error desconocido").slice(0, 180);
+    status.textContent = `No se pudo enviar la solicitud (${detail}).`;
   }
 }
 
@@ -1295,8 +1295,10 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
       const code = String(error.code || "").replace(/^firestore\//, "");
       const detail = code === "permission-denied"
         ? "Firebase denegó el permiso. Revisá que hayas iniciado sesión como administradora y que las reglas estén publicadas."
-        : code ? `Firebase informó: ${code}.` : "";
-      setMessage(purchaseStatus, knownError || `No se pudo guardar la compra.${detail ? ` ${detail}` : " Revisá tu conexión e intentá de nuevo."}`);
+        : code ? `Firebase informó: ${code}.`
+          : `Detalle técnico: ${String(error.message || error.name || "error desconocido").slice(0, 180)}.`;
+      console.error("Error al registrar la compra:", error);
+      setMessage(purchaseStatus, knownError || `No se pudo guardar la compra. ${detail}`);
       return;
     } finally { button.disabled = false; }
     setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
