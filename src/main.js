@@ -255,6 +255,36 @@ function updatePublicClientRewards(points) {
   if (!active.length) rewardsList.textContent = "Pronto habrá nuevas recompensas.";
 }
 
+async function loadPublicRewards() {
+  const list = $("#public-rewards-list");
+  try {
+    const snapshot = await getDocs(collection(db, "recompensasPublicas"));
+    const active = snapshot.docs
+      .map((reward) => ({ id: reward.id, ...reward.data() }))
+      .filter((reward) => reward.activo === true)
+      .sort((a, b) => Number(a.puntos) - Number(b.puntos));
+    list.replaceChildren();
+    if (!active.length) {
+      list.textContent = "Pronto habrá nuevas recompensas.";
+      return;
+    }
+    active.forEach((reward) => {
+      const item = document.createElement("article");
+      item.className = "public-reward-preview";
+      const name = document.createElement("strong");
+      name.textContent = reward.nombre || "Recompensa";
+      const details = document.createElement("span");
+      const points = Number(reward.puntos) || 0;
+      details.textContent = `${points} puntos · ${reward.descripcion || rewardCategoryLabel(reward.categoria)}`;
+      item.append(name, details);
+      list.append(item);
+    });
+  } catch (error) {
+    console.error("No se pudieron cargar las recompensas públicas:", error);
+    list.textContent = "No pudimos cargar las recompensas. Intentá de nuevo más tarde.";
+  }
+}
+
 function showCustomerAccount(points, phone) {
   currentCustomerPhone = phone;
   customerForm.hidden = true;
@@ -288,9 +318,9 @@ async function submitRedemptionRequest(phone, rewardId, reward) {
     updatePublicClientRewards(Number($("#customer-points").textContent) || 0);
     status.textContent = "Solicitud enviada. Acercate al local con este celular; el administrador verificará tus datos y, si la aprueba, emitirá tu cupón.";
   } catch (error) {
-    console.error("Error al enviar la solicitud de recompensa:", error);
-    const detail = String(error.code || error.message || "error desconocido").slice(0, 180);
-    status.textContent = `No se pudo enviar la solicitud (${detail}).`;
+    status.textContent = error.code === "permission-denied"
+      ? "No se pudo enviar. Puede faltar publicar las nuevas reglas de Firestore."
+      : "No se pudo enviar la solicitud. Revisá tu conexión e intentá de nuevo.";
   }
 }
 
@@ -687,6 +717,8 @@ async function loadPublicBusinessInfo() {
   try {
     const snapshot = await getDoc(doc(db, "configuracionPublica", "negocio"));
     const data = snapshot.exists() ? { ...defaultSettings, ...snapshot.data() } : defaultSettings;
+    const pesosPorPunto = Math.max(1, Math.trunc(Number(data.pesosPorPunto) || defaultSettings.pesosPorPunto));
+    $("#public-points-conversion").textContent = `${currency.format(pesosPorPunto)} = 1 punto`;
     const location = $("#business-location");
     const links = $("#business-links");
     const whatsapp = $("#whatsapp-link");
@@ -753,7 +785,7 @@ async function cancelPurchase(movement) {
         descripcion: "Compra anulada y puntos reintegrados",
         entidad: "compra",
         entidadId: purchaseId,
-        clienteId: clientId,
+        clienteId,
         puntos: -points,
         detalle: movement.detalle || "Compra de prueba anulada",
         extras: { referenciaId: purchaseId },
@@ -1011,7 +1043,7 @@ async function issueCoupon(event) {
         estado: "pendiente", creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid,
         ...(expiryDate ? { venceEn: expiryDate } : {}),
       });
-      await audit(transaction, { tipo: "cupon_emitido", descripcion: `Cupón ${code} emitido`, entidad: "cupon", entidadId: code, clienteId: clientId, puntos: -pointsCost, detalle: currentReward.nombre, extras: { referenciaId: code } });
+      await audit(transaction, { tipo: "cupon_emitido", descripcion: `Cupón ${code} emitido`, entidad: "cupon", entidadId: code, clienteId, puntos: -pointsCost, detalle: currentReward.nombre, extras: { referenciaId: code } });
     });
     status.textContent = `Cupón ${code} emitido. Los puntos ya se descontaron; presentalo en el local para marcarlo como usado.`;
     redemptionForm.reset();
@@ -1110,6 +1142,7 @@ $$('[data-go-page]').forEach((button) => button.addEventListener("click", () => 
 
 if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_")) {
   loadPublicBusinessInfo();
+  loadPublicRewards();
   $("#lookup-button").disabled = false;
   adminSubmit.disabled = false;
   setMessage(customerStatus, "Ingresá los 10 números de tu celular.");
@@ -1253,7 +1286,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     const ref = doc(db, "configuracion", "negocio");
     const publicRef = doc(db, "configuracionPublica", "negocio");
     try {
-      await runTransaction(db, async (transaction) => { await transaction.get(ref); await transaction.get(publicRef); transaction.set(ref, next, { merge: true }); transaction.set(publicRef, { whatsapp: next.whatsapp, instagram: next.instagram, ubicacion: next.ubicacion }, { merge: true }); await audit(transaction, { tipo: "administracion", descripcion: "Configuración del negocio actualizada", entidad: "configuracion", entidadId: "negocio" }); });
+      await runTransaction(db, async (transaction) => { await transaction.get(ref); await transaction.get(publicRef); transaction.set(ref, next, { merge: true }); transaction.set(publicRef, { whatsapp: next.whatsapp, instagram: next.instagram, ubicacion: next.ubicacion, pesosPorPunto: next.pesosPorPunto }, { merge: true }); await audit(transaction, { tipo: "administracion", descripcion: "Configuración del negocio actualizada", entidad: "configuracion", entidadId: "negocio" }); });
       await Promise.all([loadSettings(), loadPublicBusinessInfo()]); setMessage("#settings-status", "Configuración guardada y anotada en el historial."); await loadHistory();
     } catch { setMessage("#settings-status", "No se pudo guardar la configuración."); }
   });
@@ -1268,9 +1301,8 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     const phone = normalizeArgentinePhone(clientId); if (!phone) { setMessage(purchaseStatus, "El celular del cliente necesita revisión antes de registrar la compra."); return; }
     const purchaseRef = doc(collection(db, "compras")); const clientRef = doc(db, "clientes", clientId); const publicRef = doc(db, "consultasPuntos", phone);
     const button = $("button[type='submit']", purchaseForm); button.disabled = true; setMessage(purchaseStatus, "Registrando compra…");
-    let result;
     try {
-      result = await runTransaction(db, async (transaction) => {
+      const result = await runTransaction(db, async (transaction) => {
         const clientSnapshot = await transaction.get(clientRef); await transaction.get(publicRef);
         const productSnapshots = new Map();
         for (const line of lines) if (!productSnapshots.has(line.productId)) productSnapshots.set(line.productId, await transaction.get(doc(db, "productos", line.productId)));
@@ -1287,28 +1319,14 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         const gained = Math.floor(total / (Number(settings.pesosPorPunto) || 100)); const balance = currentPoints + gained;
         transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() }); transaction.set(publicRef, { puntos: balance });
         transaction.set(purchaseRef, { clienteId: clientId, items, total, puntosSumados: gained, creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid });
-        await audit(transaction, { tipo: "compra", descripcion: "Compra registrada", entidad: "compra", entidadId: purchaseRef.id, clienteId: clientId, puntos: gained, detalle: `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`, extras: { importe: total, referenciaId: purchaseRef.id } });
+        await audit(transaction, { tipo: "compra", descripcion: "Compra registrada", entidad: "compra", entidadId: purchaseRef.id, clienteId, puntos: gained, detalle: `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`, extras: { importe: total, referenciaId: purchaseRef.id } });
         return { total, gained, balance };
       });
+      setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
+      purchaseLines.replaceChildren(); addPurchaseLine(); await Promise.all([loadClients(), loadHistory()]);
     } catch (error) {
-      const knownError = ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message];
-      const code = String(error.code || "").replace(/^firestore\//, "");
-      const detail = code === "permission-denied"
-        ? "Firebase denegó el permiso. Revisá que hayas iniciado sesión como administradora y que las reglas estén publicadas."
-        : code ? `Firebase informó: ${code}.`
-          : `Detalle técnico: ${String(error.message || error.name || "error desconocido").slice(0, 180)}.`;
-      console.error("Error al registrar la compra:", error);
-      setMessage(purchaseStatus, knownError || `No se pudo guardar la compra. ${detail}`);
-      return;
+      setMessage(purchaseStatus, ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message] || "No se pudo registrar la compra; no se aplicaron cambios.");
     } finally { button.disabled = false; }
-    setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
-    purchaseLines.replaceChildren(); addPurchaseLine();
-    try {
-      await Promise.all([loadClients(), loadHistory()]);
-    } catch (error) {
-      console.error("La compra se guardó, pero no se pudo actualizar la pantalla.", error);
-      setMessage(purchaseStatus, `La compra sí quedó registrada (+${result.gained} puntos). No se pudo actualizar la pantalla; recargala antes de volver a intentarlo.`);
-    }
   });
 
   $("#adjust-points-form").addEventListener("submit", async (event) => {
@@ -1322,7 +1340,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         if (!clientSnapshot.exists()) throw new Error("missing-client");
         const current = Number(clientSnapshot.data().puntos) || 0; const balance = current + amount; if (balance < 0) throw new Error("negative-balance");
         transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() }); transaction.set(publicRef, { puntos: balance });
-        await audit(transaction, { tipo: "ajuste_puntos", descripcion: "Ajuste manual de puntos", entidad: "cliente", entidadId: clientId, clienteId: clientId, puntos: amount, detalle: reason });
+        await audit(transaction, { tipo: "ajuste_puntos", descripcion: "Ajuste manual de puntos", entidad: "cliente", entidadId: clientId, clienteId, puntos: amount, detalle: reason });
       });
       $("#adjust-points-form").reset(); setMessage("#adjust-points-status", "Ajuste guardado en el historial."); await Promise.all([loadClients(), loadHistory()]);
     } catch (error) { setMessage("#adjust-points-status", error.message === "negative-balance" ? "El saldo no puede quedar por debajo de 0." : "No se pudo ajustar el saldo."); }
