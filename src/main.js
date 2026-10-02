@@ -82,6 +82,14 @@ function setMessage(selector, message) {
   if (element) element.textContent = message;
 }
 
+function technicalError(error) {
+  const code = String(error?.code || "").trim();
+  const detail = String(error?.message || "").trim();
+  return [code ? `Código: ${code}` : "", detail ? `Detalle: ${detail}` : ""]
+    .filter(Boolean)
+    .join(" · ") || "Firebase no devolvió detalles técnicos.";
+}
+
 function showView(viewName) {
   const isAdminView = viewName === "admin";
   customerView.hidden = isAdminView;
@@ -542,7 +550,7 @@ function renderClients() {
           await audit(transaction, { tipo: "administracion", descripcion: `Datos de cliente actualizados: ${firstName.trim()} ${surname.trim()}`, entidad: "cliente", entidadId: id, clienteId: id });
         });
         await Promise.all([loadClients(), loadHistory()]);
-      } catch { setMessage("#admin-status", "No se pudieron actualizar los datos del cliente."); }
+      } catch (error) { setMessage("#admin-status", `No se pudieron actualizar los datos del cliente. ${technicalError(error)}`); }
     });
     actions.append(editButton);
     const statusButton = document.createElement("button"); statusButton.type = "button"; statusButton.className = `text-button ${data.activo === false ? "" : "destructive-link"}`; statusButton.textContent = data.activo === false ? "Reactivar" : "Pausar";
@@ -557,7 +565,7 @@ function renderClients() {
           await audit(transaction, { tipo: "administracion", descripcion: `${active ? "Cliente reactivado" : "Cliente pausado"}: ${clientName(data)}`, entidad: "cliente", entidadId: id, clienteId: id });
         });
         await Promise.all([loadClients(), loadHistory()]);
-      } catch { setMessage("#admin-status", "No se pudo cambiar el estado del cliente."); }
+      } catch (error) { setMessage("#admin-status", `No se pudo cambiar el estado del cliente. ${technicalError(error)}`); }
     });
     actions.append(statusButton);
     const historyButton = document.createElement("button");
@@ -603,7 +611,7 @@ async function editProduct(productId) {
   try {
     await logProductUpdate(productId, { nombre: newName, precio: newPrice, precioPendiente: false, ...(product.precioPendiente ? { activo: true } : {}) }, "edición", `Producto actualizado: ${newName}`);
     await Promise.all([loadProducts(), loadHistory()]);
-  } catch { setMessage("#admin-status", "No se pudo actualizar el producto."); }
+  } catch (error) { setMessage("#admin-status", `No se pudo actualizar el producto. ${technicalError(error)}`); }
 }
 
 async function archiveProduct(productId) {
@@ -613,7 +621,7 @@ async function archiveProduct(productId) {
   try {
     await logProductUpdate(productId, { activo: false, archivado: true }, "archivado", `Producto quitado: ${product.nombre}`);
     await Promise.all([loadProducts(), loadHistory()]);
-  } catch { setMessage("#admin-status", "No se pudo quitar el producto."); }
+  } catch (error) { setMessage("#admin-status", `No se pudo quitar el producto. ${technicalError(error)}`); }
 }
 
 function renderProducts() {
@@ -649,7 +657,7 @@ function renderProducts() {
         try {
           await logProductUpdate(id, { activo: active }, active ? "reactivado" : "pausado", active ? `Producto reactivado: ${product.nombre}` : `Producto pausado: ${product.nombre}`);
           await loadProducts();
-        } catch { setMessage("#admin-status", "No se pudo cambiar el estado del producto."); }
+        } catch (error) { setMessage("#admin-status", `No se pudo cambiar el estado del producto. ${technicalError(error)}`); }
       });
       actions.append(toggle);
       const archive = document.createElement("button");
@@ -798,7 +806,7 @@ async function saveRewardUpdate(id, next, description) {
     });
     setMessage("#reward-status", "Recompensa actualizada y guardada en el historial.");
     await loadRewards();
-  } catch { setMessage("#reward-status", "No se pudo actualizar la recompensa."); }
+  } catch (error) { setMessage("#reward-status", `No se pudo actualizar la recompensa. ${technicalError(error)}`); }
 }
 
 async function loadSettings() {
@@ -991,7 +999,7 @@ async function saveEditedPurchase(event) {
           : error.message === "missing-product"
             ? "Uno de los productos ya no existe; no se aplicaron cambios."
             : "No se pudo corregir la venta; no se aplicaron cambios.";
-    setMessage("#purchase-edit-status", message);
+    setMessage("#purchase-edit-status", message === "No se pudo corregir la venta; no se aplicaron cambios." ? `${message} ${technicalError(error)}` : message);
   } finally { button.disabled = false; updatePurchaseEditSummary(); }
 }
 
@@ -1044,7 +1052,7 @@ async function cancelPurchase(movement) {
       : error.message === "already-cancelled"
         ? "Esta compra ya había sido anulada."
         : "No se pudo anular la compra. No se cambiaron los puntos.";
-    setMessage("#admin-status", message);
+    setMessage("#admin-status", message === "No se pudo anular la compra. No se cambiaron los puntos." ? `${message} ${technicalError(error)}` : message);
   }
 }
 
@@ -1438,7 +1446,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
       await Promise.all([loadClients(), loadProducts({ initializeCatalog: true }), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadPurchases(), loadCoupons(), loadRedemptionRequests()]);
       showAdminPage("dashboard");
       setMessage("#admin-status", "Información cargada. Los cambios administrativos quedan anotados en el historial.");
-    } catch { setMessage("#admin-status", "No se pudo cargar la información. Revisá las reglas de Firestore."); }
+    } catch (error) { setMessage("#admin-status", `No se pudo cargar la información. ${technicalError(error)}`); }
   });
 
   adminForm.addEventListener("submit", async (event) => {
@@ -1489,7 +1497,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         }
       });
       clientForm.reset(); setMessage("#admin-status", "Cliente agregado y anotado en el historial."); await Promise.all([loadClients(), loadHistory()]);
-    } catch (error) { setMessage("#admin-status", error.message === "duplicate-client" ? "Ya existe un cliente con ese celular." : error.message === "invalid-referrer" ? "El cliente que recomendó debe existir y ser otra persona." : "No se pudo agregar el cliente. Revisá las reglas de Firestore."); }
+    } catch (error) { setMessage("#admin-status", error.message === "duplicate-client" ? "Ya existe un cliente con ese celular." : error.message === "invalid-referrer" ? "El cliente que recomendó debe existir y ser otra persona." : `No se pudo agregar el cliente. ${technicalError(error)}`); }
   });
 
   productForm.addEventListener("submit", async (event) => {
@@ -1503,7 +1511,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         await audit(transaction, { tipo: "administracion", descripcion: `Producto creado: ${nombre}`, entidad: "producto", entidadId: ref.id, detalle: currency.format(precio) });
       });
       productForm.reset(); setMessage("#admin-status", "Producto creado y anotado en el historial."); await Promise.all([loadProducts(), loadHistory()]);
-    } catch { setMessage("#admin-status", "No se pudo crear el producto."); }
+    } catch (error) { setMessage("#admin-status", `No se pudo crear el producto. ${technicalError(error)}`); }
   });
   $("#product-search").addEventListener("input", renderProducts);
 
@@ -1519,7 +1527,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         await audit(transaction, { tipo: "administracion", descripcion: `Recompensa creada: ${name}`, entidad: "recompensa", entidadId: ref.id, detalle: `${points} puntos` });
       });
       $("#reward-form").reset(); setMessage("#reward-status", "Recompensa creada y anotada en el historial."); await Promise.all([loadRewards(), loadHistory()]);
-    } catch { setMessage("#reward-status", "No se pudo crear la recompensa."); }
+    } catch (error) { setMessage("#reward-status", `No se pudo crear la recompensa. ${technicalError(error)}`); }
   });
 
   $("#settings-form").addEventListener("submit", async (event) => {
@@ -1533,7 +1541,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     try {
       await runTransaction(db, async (transaction) => { await transaction.get(ref); await transaction.get(publicRef); transaction.set(ref, next, { merge: true }); transaction.set(publicRef, { whatsapp: next.whatsapp, instagram: next.instagram, ubicacion: next.ubicacion, pesosPorPunto: next.pesosPorPunto }, { merge: true }); await audit(transaction, { tipo: "administracion", descripcion: "Configuración del negocio actualizada", entidad: "configuracion", entidadId: "negocio" }); });
       await Promise.all([loadSettings(), loadPublicBusinessInfo()]); setMessage("#settings-status", "Configuración guardada y anotada en el historial."); await loadHistory();
-    } catch { setMessage("#settings-status", "No se pudo guardar la configuración."); }
+    } catch (error) { setMessage("#settings-status", `No se pudo guardar la configuración. ${technicalError(error)}`); }
   });
 
   $("#add-purchase-line").addEventListener("click", addPurchaseLine);
@@ -1575,7 +1583,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
       setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
       purchaseLines.replaceChildren(); addPurchaseLine(); await Promise.all([loadClients(), loadHistory(), loadPurchases()]);
     } catch (error) {
-      setMessage(purchaseStatus, ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message] || "No se pudo registrar la compra; no se aplicaron cambios.");
+      setMessage(purchaseStatus, ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message] || `No se pudo registrar la compra; no se aplicaron cambios. ${technicalError(error)}`);
     } finally { button.disabled = false; }
   });
 
