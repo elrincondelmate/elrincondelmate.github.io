@@ -33,7 +33,13 @@
             <p class="field-help" id="phone-help">Ingresá los 10 números, sin 0 ni 15.</p>
             <button class="button button-primary" id="lookup-button" type="submit" disabled>Consultar mis puntos</button>
           </form>
+          <p class="points-conversion"><span aria-hidden="true">⭐</span><strong id="public-points-conversion">$100 = 1 punto</strong></p>
           <p class="notice" id="customer-status" role="status">Conectando con Firebase…</p>
+        </article>
+        <article class="card public-rewards-card">
+          <h3>Recompensas activas</h3>
+          <p class="intro">Conocé los beneficios del club sin ingresar tu celular.</p>
+          <div id="public-rewards-list" class="reward-list" aria-live="polite">Cargando recompensas…</div>
         </article>
         <article class="card points-card is-hidden" id="customer-account" hidden aria-live="polite">
           <div class="account-heading">
