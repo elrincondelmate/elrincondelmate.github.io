@@ -5,6 +5,7 @@ Sitio estático publicado con GitHub Pages. Usa HTML, CSS, JavaScript y Firebase
 ## Pantalla del cliente
 
 - Consulta puntos con el celular de 10 dígitos.
+- Muestra la equivalencia vigente de pesos por punto y las recompensas activas sin pedir el celular.
 - Muestra el saldo y las recompensas activas.
 - Si llega a los puntos, puede solicitar una recompensa. La solicitud no descuenta puntos; el administrador verifica a la persona y el celular en el local y recién al aprobarla descuenta el saldo y emite el cupón.
 - El cliente no ve el historial de movimientos. La consulta por celular no comprueba que la persona sea dueña del número.
@@ -13,10 +14,10 @@ Sitio estático publicado con GitHub Pages. Usa HTML, CSS, JavaScript y Firebase
 
 El panel tiene navegación horizontal por Inicio, Clientes, Productos, Compras, Recompensas, Cupones, Historial y Configuración.
 
-- **Inicio:** clientes, productos activos, ventas del mes, puntos en circulación y actividad reciente.
+- **Inicio:** clientes, productos activos, ventas del mes, puntos en circulación, actividad reciente, ventas corregibles/anulables del mes y gráfico horizontal de unidades vendidas por producto.
 - **Clientes:** importación no destructiva desde la base anterior, alta, edición de nombre, pausa/reactivación, búsqueda, ajustes manuales de puntos con motivo y puntos automáticos al ingresar un referido.
 - **Productos:** alta, edición de nombre y precio, pausa/reactivación y retiro del catálogo. Retirar es un archivo lógico: conserva las compras anteriores.
-- **Compras:** varios productos por compra; el historial muestra cada producto y cantidad. Cada $100 agrega 1 punto por defecto. Compra, saldo y movimiento se guardan juntos. Una compra de prueba se puede anular desde el historial; se reintegran sus puntos y se conserva el registro. Si ya se gastaron esos puntos, la anulación se bloquea para evitar un saldo negativo.
+- **Compras:** varios productos por compra; el historial muestra cada producto y cantidad. Cada $100 agrega 1 punto por defecto. Compra, saldo y movimiento se guardan juntos. Una venta se puede corregir por productos, cantidades e importes, o anular desde Inicio o el historial; al corregir se recalculan puntos y al anular se reintegran, conservando siempre el registro. Si el cliente ya usó puntos, la operación que dejaría el saldo negativo se bloquea.
 - **Recompensas:** alta, edición de nombre y puntos, pausa/reactivación y retiro; el catálogo público muestra las activas.
 - **Cupones:** aprobación de solicitudes, emisión con código y QR en formato imprimible, descuento de puntos al aprobar, confirmación de uso y anulación con reintegro. El alta directa desde el panel sigue disponible.
 - **Historial:** compras, cupones, ajustes, importaciones y cambios de clientes, productos, recompensas y configuración.
