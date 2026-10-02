@@ -51,6 +51,9 @@ const productForm = $("#product-form");
 const purchaseForm = $("#purchase-form");
 const purchaseLines = $("#purchase-lines");
 const purchaseStatus = $("#purchase-status");
+const purchaseEditDialog = $("#purchase-edit-dialog");
+const purchaseEditForm = $("#purchase-edit-form");
+const purchaseEditLines = $("#purchase-edit-lines");
 const redemptionForm = $("#coupon-form");
 const adminSubmit = adminForm.querySelector("button[type='submit']");
 
@@ -59,6 +62,8 @@ let productsById = new Map();
 let rewardsById = new Map();
 let settings = { ...defaultSettings };
 let historyItems = [];
+let purchaseRecords = [];
+let editingPurchaseMovement = null;
 let couponItems = [];
 let redemptionRequests = [];
 let currentCustomerPhone = "";
@@ -147,6 +152,7 @@ function movementLabel(item) {
   if (item.tipo === "compra" && item.anulada === true) return "Compra anulada";
   const labels = {
     compra: "Compra registrada",
+    compra_editada: "Compra corregida",
     compra_anulada: "Compra anulada; puntos reintegrados",
     canje: "Canje confirmado",
     cupon_emitido: "Cupón emitido",
@@ -200,12 +206,17 @@ function addMovementRow(container, item, clientLookup = true) {
     row.append(points);
   }
   if (item.tipo === "compra" && !item.anulada) {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "text-button movement-action";
+    edit.textContent = "Editar venta";
+    edit.addEventListener("click", () => openPurchaseEditor(item));
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "text-button destructive-link movement-action";
     cancel.textContent = "Anular compra";
     cancel.addEventListener("click", () => cancelPurchase(item));
-    row.append(cancel);
+    row.append(edit, cancel);
   }
   container.append(row);
 }
@@ -397,11 +408,9 @@ function updateDashboard() {
   $("#stat-clients").textContent = String(clientsById.size);
   $("#stat-products").textContent = String([...productsById.values()].filter((product) => product.activo !== false && product.archivado !== true).length);
   const now = new Date();
-  const sales = historyItems.filter((item) => item.tipo === "compra" && item.anulada !== true)
-    .filter((item) => {
-      const date = timestampDate(item.creadoEn);
-      return date && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
-    }).reduce((sum, item) => sum + (Number(item.importe) || 0), 0);
+  const monthly = purchaseRecords.filter((purchase) => isCurrentMonth(purchase.creadoEn, now));
+  const sales = monthly.filter((purchase) => purchase.estado !== "anulada")
+    .reduce((sum, purchase) => sum + (Number(purchase.total) || 0), 0);
   $("#stat-sales").textContent = currency.format(sales);
   const points = [...clientsById.values()].reduce((sum, client) => sum + (Number(client.puntos) || 0), 0);
   $("#stat-points").textContent = String(points);
@@ -409,6 +418,88 @@ function updateDashboard() {
   recent.replaceChildren();
   historyItems.slice(0, 5).forEach((item) => addMovementRow(recent, item));
   if (!historyItems.length) recent.textContent = "Todavía no hay actividad registrada.";
+  renderDashboardMonthSales(monthly);
+  renderDashboardProductSales(monthly.filter((purchase) => purchase.estado !== "anulada"));
+}
+
+function isCurrentMonth(value, reference = new Date()) {
+  const date = timestampDate(value);
+  return date && date.getFullYear() === reference.getFullYear() && date.getMonth() === reference.getMonth();
+}
+
+function movementForPurchase(purchase) {
+  return historyItems.find((item) => item.tipo === "compra" && (item.referenciaId === purchase.id || item.entidadId === purchase.id));
+}
+
+function renderDashboardMonthSales(monthlyPurchases) {
+  const list = $("#dashboard-month-sales");
+  if (!list) return;
+  list.replaceChildren();
+  const rows = [...monthlyPurchases].sort((a, b) => (timestampDate(b.creadoEn)?.getTime() || 0) - (timestampDate(a.creadoEn)?.getTime() || 0));
+  if (!rows.length) { list.textContent = "Todavía no hay ventas este mes."; return; }
+  rows.forEach((purchase) => {
+    const row = document.createElement("article");
+    row.className = `record-row dashboard-sale-row ${purchase.estado === "anulada" ? "is-archived" : ""}`;
+    const info = document.createElement("div"); info.className = "record-info";
+    const client = clientsById.get(purchase.clienteId);
+    const title = document.createElement("strong");
+    title.textContent = `${client ? clientName(client) : "Cliente"} · ${currency.format(Number(purchase.total) || 0)}${purchase.estado === "anulada" ? " · ANULADA" : ""}`;
+    const detail = document.createElement("span");
+    const products = (purchase.items || []).map((item) => `${item.nombre || "Producto"} ×${Number(item.cantidad) || 0}`).join(", ");
+    detail.textContent = `${products || "Detalle de productos no disponible"} · ${formatDate(purchase.creadoEn)}`;
+    info.append(title, detail); row.append(info);
+    const movement = movementForPurchase(purchase);
+    if (purchase.estado !== "anulada" && movement) {
+      const actions = document.createElement("div"); actions.className = "record-actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "text-button"; edit.textContent = "Editar venta";
+      edit.addEventListener("click", () => openPurchaseEditor(movement));
+      const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "text-button destructive-link"; cancel.textContent = "Anular venta";
+      cancel.addEventListener("click", () => cancelPurchase(movement));
+      actions.append(edit, cancel); row.append(actions);
+    }
+    list.append(row);
+  });
+}
+
+function renderDashboardProductSales(monthlyPurchases) {
+  const chart = $("#dashboard-product-sales");
+  if (!chart) return;
+  chart.replaceChildren();
+  const totals = new Map();
+  monthlyPurchases.forEach((purchase) => (purchase.items || []).forEach((item) => {
+    const quantity = Number(item.cantidad) || 0;
+    const name = String(item.nombre || "Producto");
+    if (quantity <= 0) return;
+    const key = item.productoId || normalizeCatalogName(name);
+    const current = totals.get(key) || { nombre: name, cantidad: 0, productoId: item.productoId || "" };
+    current.cantidad += quantity;
+    totals.set(key, current);
+  }));
+  const entries = [...totals.values()].sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"));
+  if (!entries.length) { chart.textContent = "Todavía no hay productos vendidos este mes."; return; }
+  const max = entries[0].cantidad;
+  entries.forEach((entry) => {
+    const row = document.createElement("div"); row.className = "product-sales-row";
+    const name = document.createElement("span"); name.className = "product-sales-name"; name.textContent = entry.nombre;
+    const count = document.createElement("span"); count.className = "product-sales-count"; count.textContent = `${entry.cantidad} ${entry.cantidad === 1 ? "unidad" : "unidades"}`;
+    const track = document.createElement("div"); track.className = "product-sales-track"; track.setAttribute("role", "img"); track.setAttribute("aria-label", `${entry.nombre}: ${count.textContent}`);
+    const bar = document.createElement("div"); bar.className = "product-sales-bar"; bar.style.width = `${Math.max(4, entry.cantidad / max * 100)}%`; track.append(bar);
+    row.append(name, count, track);
+    const product = entry.productoId ? productsById.get(entry.productoId) : null;
+    if (product) {
+      const actions = document.createElement("div"); actions.className = "product-sales-actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "text-button"; edit.textContent = "Editar producto";
+      edit.addEventListener("click", () => editProduct(entry.productoId));
+      actions.append(edit);
+      if (!product.archivado) {
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "text-button destructive-link"; remove.textContent = "Quitar producto";
+        remove.addEventListener("click", () => archiveProduct(entry.productoId));
+        actions.append(remove);
+      }
+      row.append(actions);
+    }
+    chart.append(row);
+  });
 }
 
 function clientMatches(client, id, query) {
@@ -500,6 +591,31 @@ async function logProductUpdate(productId, patch, action, description) {
   });
 }
 
+async function editProduct(productId) {
+  const product = productsById.get(productId);
+  if (!product) return;
+  const nameInput = prompt("Nombre del producto:", product.nombre);
+  if (nameInput === null) return;
+  const priceInput = prompt("Precio en pesos:", String(product.precio || ""));
+  if (priceInput === null) return;
+  const newName = nameInput.trim(); const newPrice = Number(priceInput);
+  if (!newName || !Number.isSafeInteger(newPrice) || newPrice < 1) { setMessage("#admin-status", "Revisá el nombre y el precio entero mayor a 0."); return; }
+  try {
+    await logProductUpdate(productId, { nombre: newName, precio: newPrice, precioPendiente: false, ...(product.precioPendiente ? { activo: true } : {}) }, "edición", `Producto actualizado: ${newName}`);
+    await Promise.all([loadProducts(), loadHistory()]);
+  } catch { setMessage("#admin-status", "No se pudo actualizar el producto."); }
+}
+
+async function archiveProduct(productId) {
+  const product = productsById.get(productId);
+  if (!product || product.archivado) return;
+  if (!confirm(`¿Quitar “${product.nombre}” del catálogo? Se conserva en las compras y el historial.`)) return;
+  try {
+    await logProductUpdate(productId, { activo: false, archivado: true }, "archivado", `Producto quitado: ${product.nombre}`);
+    await Promise.all([loadProducts(), loadHistory()]);
+  } catch { setMessage("#admin-status", "No se pudo quitar el producto."); }
+}
+
 function renderProducts() {
   const list = $("#products-list");
   list.replaceChildren();
@@ -523,16 +639,7 @@ function renderProducts() {
     actions.className = "record-actions";
     const edit = document.createElement("button");
     edit.type = "button"; edit.className = "text-button"; edit.textContent = "Editar";
-    edit.addEventListener("click", () => {
-      const nameInput = prompt("Nombre del producto:", product.nombre);
-      if (nameInput === null) return;
-      const priceInput = prompt("Precio en pesos:", String(product.precio));
-      if (priceInput === null) return;
-      const newName = nameInput.trim(); const newPrice = Number(priceInput);
-      if (!newName || !Number.isSafeInteger(newPrice) || newPrice < 1) { setMessage("#admin-status", "Revisá el nombre y el precio entero mayor a 0."); return; }
-      logProductUpdate(id, { nombre: newName, precio: newPrice, precioPendiente: false, ...(product.precioPendiente ? { activo: true } : {}) }, "edición", `Producto actualizado: ${newName}`)
-        .then(loadProducts).catch(() => setMessage("#admin-status", "No se pudo actualizar el producto."));
-    });
+    edit.addEventListener("click", () => editProduct(id));
     actions.append(edit);
     if (!product.archivado) {
       const toggle = document.createElement("button");
@@ -547,13 +654,7 @@ function renderProducts() {
       actions.append(toggle);
       const archive = document.createElement("button");
       archive.type = "button"; archive.className = "text-button destructive-link"; archive.textContent = "Quitar";
-      archive.addEventListener("click", async () => {
-        if (!confirm(`¿Quitar “${product.nombre}” del catálogo? Se conserva en las compras y el historial.`)) return;
-        try {
-          await logProductUpdate(id, { activo: false, archivado: true }, "archivado", `Producto quitado: ${product.nombre}`);
-          await loadProducts();
-        } catch { setMessage("#admin-status", "No se pudo quitar el producto."); }
-      });
+      archive.addEventListener("click", () => archiveProduct(id));
       actions.append(archive);
     }
     row.append(info, actions);
@@ -750,6 +851,150 @@ async function loadHistory() {
   renderHistory();
 }
 
+async function loadPurchases() {
+  const snapshot = await getDocs(collection(db, "compras"));
+  purchaseRecords = snapshot.docs.map((purchase) => ({ id: purchase.id, ...purchase.data() }))
+    .sort((a, b) => (timestampDate(b.creadoEn)?.getTime() || 0) - (timestampDate(a.creadoEn)?.getTime() || 0));
+  updateDashboard();
+}
+
+function openPurchaseEditor(movement) {
+  const purchaseId = movement.referenciaId || movement.entidadId;
+  const purchase = purchaseRecords.find((entry) => entry.id === purchaseId);
+  if (!purchaseId || !purchase || purchase.estado === "anulada") { setMessage("#admin-status", "No se puede abrir esta venta para editarla."); return; }
+  editingPurchaseMovement = movement;
+  purchaseEditLines.replaceChildren();
+  (purchase.items || []).forEach((item) => addPurchaseEditLine(item));
+  if (!purchase.items?.length) addPurchaseEditLine();
+  $("#purchase-edit-status").textContent = "";
+  updatePurchaseEditSummary();
+  purchaseEditDialog.showModal();
+}
+
+function addPurchaseEditLine(item = {}) {
+  const line = document.createElement("div"); line.className = "purchase-line purchase-edit-line";
+  const product = document.createElement("select"); product.setAttribute("aria-label", "Producto");
+  const entries = [...productsById.entries()].filter(([id, data]) => (data.activo !== false && data.archivado !== true) || id === item.productoId)
+    .sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, "es"));
+  updateSelectOptions(product, entries, "Elegí un producto…", (id, data) => `${data.nombre} · ${currency.format(Number(data.precio) || 0)}`);
+  if (item.productoId && !productsById.has(item.productoId)) {
+    const option = document.createElement("option"); option.value = item.productoId; option.textContent = item.nombre || "Producto anterior"; product.append(option);
+  }
+  product.value = item.productoId || "";
+  product.dataset.lastProductId = product.value;
+  const quantity = document.createElement("input"); quantity.type = "number"; quantity.min = "1"; quantity.step = "1"; quantity.value = String(item.cantidad || 1); quantity.inputMode = "numeric"; quantity.setAttribute("aria-label", "Cantidad");
+  const price = document.createElement("input"); price.type = "number"; price.min = "0"; price.step = "1"; price.value = String(item.precioUnitario ?? productsById.get(product.value)?.precio ?? 0); price.inputMode = "numeric"; price.setAttribute("aria-label", "Precio unitario");
+  const subtotal = document.createElement("strong"); subtotal.className = "line-subtotal";
+  const remove = document.createElement("button"); remove.type = "button"; remove.className = "text-button remove-line destructive-link"; remove.textContent = "Quitar"; remove.setAttribute("aria-label", "Quitar producto de la venta");
+  product.addEventListener("change", () => {
+    const selected = productsById.get(product.value);
+    if (product.value !== product.dataset.lastProductId && selected) price.value = String(Number(selected.precio) || 0);
+    product.dataset.lastProductId = product.value;
+    updatePurchaseEditSummary();
+  });
+  quantity.addEventListener("input", updatePurchaseEditSummary);
+  price.addEventListener("input", updatePurchaseEditSummary);
+  remove.addEventListener("click", () => { line.remove(); updatePurchaseEditSummary(); });
+  line.append(product, quantity, price, subtotal, remove);
+  purchaseEditLines.append(line);
+  updatePurchaseEditSummary();
+}
+
+function updatePurchaseEditSummary() {
+  let total = 0; let valid = true;
+  $$(".purchase-edit-line", purchaseEditLines).forEach((line) => {
+    const quantity = Number($("input[aria-label='Cantidad']", line).value);
+    const price = Number($("input[aria-label='Precio unitario']", line).value);
+    const subtotal = price * quantity;
+    if (!$("select", line).value || !Number.isSafeInteger(quantity) || quantity < 1 || !Number.isSafeInteger(price) || price < 0 || !Number.isSafeInteger(subtotal)) valid = false;
+    $(".line-subtotal", line).textContent = currency.format(Number.isSafeInteger(subtotal) ? subtotal : 0);
+    total += Number.isSafeInteger(subtotal) ? subtotal : 0;
+  });
+  $("#purchase-edit-total").textContent = currency.format(total);
+  $("button[type='submit']", purchaseEditForm).disabled = !valid || total < 1 || !$(".purchase-edit-line", purchaseEditLines).length;
+}
+
+async function saveEditedPurchase(event) {
+  event.preventDefault();
+  const movement = editingPurchaseMovement;
+  const purchaseId = movement?.referenciaId || movement?.entidadId;
+  const clientId = movement?.clienteId;
+  const purchase = purchaseRecords.find((entry) => entry.id === purchaseId);
+  const lines = $$(".purchase-edit-line", purchaseEditLines).map((line) => ({
+    productoId: $("select", line).value,
+    cantidad: Number($("input[aria-label='Cantidad']", line).value),
+    precioUnitario: Number($("input[aria-label='Precio unitario']", line).value),
+  }));
+  if (!purchaseId || !clientId || !purchase || !lines.length || lines.some((item) => !item.productoId || !Number.isSafeInteger(item.cantidad) || item.cantidad < 1 || !Number.isSafeInteger(item.precioUnitario) || item.precioUnitario < 0)) {
+    setMessage("#purchase-edit-status", "Revisá los productos, cantidades y precios antes de guardar."); return;
+  }
+  const total = lines.reduce((sum, item) => sum + item.cantidad * item.precioUnitario, 0);
+  if (!Number.isSafeInteger(total) || total < 1) { setMessage("#purchase-edit-status", "El total debe ser un importe entero mayor a 0."); return; }
+  const phone = normalizeArgentinePhone(clientId);
+  if (!phone) { setMessage("#purchase-edit-status", "El celular del cliente necesita revisión antes de ajustar sus puntos."); return; }
+  if (!confirm(`Guardar la venta por ${currency.format(total)}? Se actualizarán los productos y se recalcularán los puntos.`)) return;
+  const button = $("button[type='submit']", purchaseEditForm); button.disabled = true;
+  setMessage("#purchase-edit-status", "Guardando cambios…");
+  const purchaseRef = doc(db, "compras", purchaseId);
+  const clientRef = doc(db, "clientes", clientId);
+  const publicRef = doc(db, "consultasPuntos", phone);
+  const movementRef = doc(db, "movimientos", movement.id);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const purchaseSnapshot = await transaction.get(purchaseRef);
+      const clientSnapshot = await transaction.get(clientRef);
+      await transaction.get(publicRef);
+      const movementSnapshot = await transaction.get(movementRef);
+      const productSnapshots = new Map();
+      for (const item of lines) if (!productSnapshots.has(item.productoId)) productSnapshots.set(item.productoId, await transaction.get(doc(db, "productos", item.productoId)));
+      if (!purchaseSnapshot.exists() || !clientSnapshot.exists() || !movementSnapshot.exists()) throw new Error("missing-record");
+      const purchaseData = purchaseSnapshot.data();
+      if ((Number(purchaseData.total) || 0) !== (Number(purchase.total) || 0) || JSON.stringify(purchaseData.items || []) !== JSON.stringify(purchase.items || [])) throw new Error("stale-purchase");
+      if (purchaseData.estado === "anulada" || movementSnapshot.data().anulada === true) throw new Error("already-cancelled");
+      const items = lines.map((item) => {
+        const snapshot = productSnapshots.get(item.productoId);
+        if (!snapshot?.exists()) throw new Error("missing-product");
+        return { productoId: item.productoId, nombre: snapshot.data().nombre || "Producto", cantidad: item.cantidad, precioUnitario: item.precioUnitario, subtotal: item.cantidad * item.precioUnitario };
+      });
+      const currentPoints = Number(clientSnapshot.data().puntos) || 0;
+      const oldPoints = Number(purchaseData.puntosSumados ?? movementSnapshot.data().puntos) || 0;
+      const newPoints = Math.floor(total / (Number(settings.pesosPorPunto) || 100));
+      const pointDelta = newPoints - oldPoints;
+      const balance = currentPoints + pointDelta;
+      if (balance < 0) throw new Error("points-spent");
+      const detail = `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`;
+      transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() });
+      transaction.set(publicRef, { puntos: balance });
+      transaction.update(purchaseRef, { items, total, puntosSumados: newPoints, editada: true, actualizadoEn: serverTimestamp(), actualizadoPor: auth.currentUser.uid });
+      transaction.update(movementRef, { importe: total, puntos: newPoints, detalle, actualizadoEn: serverTimestamp() });
+      await audit(transaction, {
+        tipo: "compra_editada",
+        descripcion: "Venta editada",
+        entidad: "compra",
+        entidadId: purchaseId,
+        clienteId,
+        puntos: pointDelta,
+        detalle: `${currency.format(Number(purchaseData.total) || 0)} → ${currency.format(total)} · productos corregidos · puntos ${oldPoints} → ${newPoints}`,
+        extras: { referenciaId: purchaseId, importeAnterior: Number(purchaseData.total) || 0, importeNuevo: total },
+      });
+    });
+    purchaseEditDialog.close(); editingPurchaseMovement = null;
+    setMessage("#admin-status", "Venta corregida. Productos, total, puntos e historial quedaron actualizados.");
+    await Promise.all([loadClients(), loadHistory(), loadPurchases()]);
+  } catch (error) {
+    const message = error.message === "points-spent"
+      ? "No se puede reducir esos puntos porque el cliente ya los usó. Anulá la venta o corregí el saldo desde Clientes."
+      : error.message === "already-cancelled"
+        ? "Esta venta ya fue anulada."
+        : error.message === "stale-purchase"
+          ? "La venta cambió desde que se abrió. Cerrá y abrí el editor otra vez."
+          : error.message === "missing-product"
+            ? "Uno de los productos ya no existe; no se aplicaron cambios."
+            : "No se pudo corregir la venta; no se aplicaron cambios.";
+    setMessage("#purchase-edit-status", message);
+  } finally { button.disabled = false; updatePurchaseEditSummary(); }
+}
+
 async function cancelPurchase(movement) {
   const purchaseId = movement.referenciaId || movement.entidadId;
   const clientId = movement.clienteId;
@@ -792,7 +1037,7 @@ async function cancelPurchase(movement) {
       });
     });
     setMessage("#admin-status", "Compra anulada. El saldo se corrigió y la acción quedó registrada.");
-    await Promise.all([loadClients(), loadHistory()]);
+    await Promise.all([loadClients(), loadHistory(), loadPurchases()]);
   } catch (error) {
     const message = error.message === "points-spent"
       ? "No se puede anular: el cliente ya usó parte de esos puntos. Corregí el saldo desde Clientes con el motivo correspondiente."
@@ -810,7 +1055,7 @@ function renderHistory() {
   const type = $("#history-filter").value || "todas";
   const query = String($("#history-search")?.value || "").trim().toLocaleLowerCase("es");
   const visible = historyItems.filter((item) => {
-    const typeMatch = type === "todas" || (type === "canje" ? ["canje", "cupon_emitido", "cupon_usado", "cupon_anulado"].includes(item.tipo) : type === "administracion" ? item.tipo === "administracion" : type === "ajuste" ? ["ajuste_puntos", "referido"].includes(item.tipo) : item.tipo === type);
+    const typeMatch = type === "todas" || (type === "compra" ? ["compra", "compra_editada", "compra_anulada"].includes(item.tipo) : type === "canje" ? ["canje", "cupon_emitido", "cupon_usado", "cupon_anulado"].includes(item.tipo) : type === "administracion" ? item.tipo === "administracion" : type === "ajuste" ? ["ajuste_puntos", "referido"].includes(item.tipo) : item.tipo === type);
     const text = `${movementLabel(item)} ${item.detalle || ""} ${item.clienteId || ""} ${clientName(clientsById.get(item.clienteId) || {})}`.toLocaleLowerCase("es");
     return typeMatch && (!query || text.includes(query));
   });
@@ -1190,7 +1435,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
     $("#admin-welcome").textContent = `Sesión: ${user.email}`;
     setMessage(authStatus, `Sesión iniciada: ${user.email}`);
     try {
-      await Promise.all([loadClients(), loadProducts({ initializeCatalog: true }), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadCoupons(), loadRedemptionRequests()]);
+      await Promise.all([loadClients(), loadProducts({ initializeCatalog: true }), loadRewards({ initializeDefaults: true }), loadSettings(), loadHistory(), loadPurchases(), loadCoupons(), loadRedemptionRequests()]);
       showAdminPage("dashboard");
       setMessage("#admin-status", "Información cargada. Los cambios administrativos quedan anotados en el historial.");
     } catch { setMessage("#admin-status", "No se pudo cargar la información. Revisá las reglas de Firestore."); }
@@ -1293,6 +1538,11 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
 
   $("#add-purchase-line").addEventListener("click", addPurchaseLine);
   addPurchaseLine();
+  $("#add-purchase-edit-line").addEventListener("click", () => addPurchaseEditLine());
+  $("#purchase-edit-cancel").addEventListener("click", () => purchaseEditDialog.close());
+  $("#purchase-edit-close").addEventListener("click", () => purchaseEditDialog.close());
+  purchaseEditForm.addEventListener("submit", saveEditedPurchase);
+  purchaseEditDialog.addEventListener("close", () => { editingPurchaseMovement = null; purchaseEditLines.replaceChildren(); purchaseEditForm.reset(); });
   purchaseForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const clientId = $("#purchase-client").value; const client = clientsById.get(clientId);
@@ -1323,7 +1573,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         return { total, gained, balance };
       });
       setMessage(purchaseStatus, `Compra registrada: ${currency.format(result.total)}, +${result.gained} puntos. Saldo: ${result.balance}.`);
-      purchaseLines.replaceChildren(); addPurchaseLine(); await Promise.all([loadClients(), loadHistory()]);
+      purchaseLines.replaceChildren(); addPurchaseLine(); await Promise.all([loadClients(), loadHistory(), loadPurchases()]);
     } catch (error) {
       setMessage(purchaseStatus, ({ "missing-client": "No encontramos ese cliente.", "inactive-client": "Ese cliente está pausado y no puede registrar compras.", "invalid-balance": "El saldo actual necesita revisión.", "inactive-product": "Uno de los productos ya no está activo. Actualizá la compra.", "invalid-price": "El precio de un producto necesita revisión.", "invalid-total": "El total excede el valor permitido." })[error.message] || "No se pudo registrar la compra; no se aplicaron cambios.");
     } finally { button.disabled = false; }
