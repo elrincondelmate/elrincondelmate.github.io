@@ -116,6 +116,8 @@
             </div>
             <article class="card inner-card"><div class="section-title-row"><h3>Actividad reciente</h3><button class="text-button" type="button" data-go-page="history">Ver historial</button></div><div id="dashboard-history" class="activity-list"></div></article>
             <article class="card inner-card"><h3>Atajos</h3><div class="quick-actions"><button class="button button-secondary" type="button" data-go-page="purchases">Registrar compra</button><button class="button button-secondary" type="button" data-go-page="clients">Agregar cliente</button><button class="button button-secondary" type="button" data-go-page="coupons">Crear cupón</button></div></article>
+            <article class="card inner-card"><div class="section-title-row"><div><h3>Ventas de este mes</h3><p class="field-help">Podés corregir los productos, cantidades e importes, o anular una venta de prueba.</p></div><button class="text-button" type="button" data-go-page="history">Ver historial completo</button></div><div id="dashboard-month-sales" class="record-list"></div></article>
+            <article class="card inner-card"><div class="section-title-row"><div><h3>Productos más vendidos</h3><p class="field-help">Unidades vendidas durante el mes actual.</p></div></div><div id="dashboard-product-sales" class="product-sales-chart"></div></article>
           </section>
 
           <section class="admin-page is-hidden" data-admin-section="clients" hidden>
@@ -234,5 +236,16 @@
 
       <footer>El Rincón del Mate · Club de Puntos</footer>
     </main>
+    <dialog id="purchase-edit-dialog" class="edit-dialog">
+      <form id="purchase-edit-form">
+        <div class="section-title-row"><div><p class="eyebrow">Corregir venta</p><h2>Editar productos</h2></div><button id="purchase-edit-close" class="text-button" type="button" aria-label="Cerrar">Cerrar</button></div>
+        <p class="intro">Podés corregir los productos, cantidades y precios. El saldo de puntos se ajustará automáticamente.</p>
+        <div id="purchase-edit-lines" class="purchase-lines"></div>
+        <button id="add-purchase-edit-line" class="button button-secondary" type="button">+ Agregar producto</button>
+        <div class="purchase-summary"><span>Nuevo total</span><strong id="purchase-edit-total">$0</strong></div>
+        <p id="purchase-edit-status" class="notice" role="status"></p>
+        <div class="edit-dialog-actions"><button id="purchase-edit-cancel" class="button button-secondary" type="button">Cancelar</button><button class="button button-primary" type="submit">Guardar cambios</button></div>
+      </form>
+    </dialog>
   </body>
 </html>

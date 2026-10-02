@@ -14,7 +14,8 @@ service cloud.firestore {
       allow list: if false;
       allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly(['puntos'])
-        && request.resource.data.puntos is int;
+        && request.resource.data.puntos is int
+        && request.resource.data.puntos >= 0;
       allow delete: if isAdmin();
     }
 
@@ -26,12 +27,75 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    match /recompensas/{rewardId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /recompensasPublicas/{rewardId} {
+      // Catálogo público de recompensas; nunca contiene información de clientes.
+      allow get, list: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['nombre', 'puntos', 'categoria', 'descripcion', 'activo'])
+        && request.resource.data.nombre is string
+        && request.resource.data.puntos is int
+        && request.resource.data.puntos > 0
+        && request.resource.data.activo is bool;
+      allow delete: if isAdmin();
+    }
+
     match /compras/{purchaseId} {
       allow read, write: if isAdmin();
     }
 
     match /canjes/{redemptionId} {
       allow read, write: if isAdmin();
+    }
+
+    match /solicitudesCanje/{requestId} {
+      // Cualquiera puede enviar una solicitud limitada; el administrador es el único
+      // que puede leerla o cambiar su estado. Aprobarla descuenta los puntos de forma segura.
+      allow create: if request.resource.data.keys().hasOnly([
+          'clienteId', 'recompensaId', 'recompensaNombre', 'puntos', 'estado', 'creadoEn'
+        ])
+        && request.resource.data.clienteId is string
+        && request.resource.data.clienteId.matches('^[0-9]{10}$')
+        && request.resource.data.recompensaId is string
+        && request.resource.data.recompensaNombre is string
+        && request.resource.data.estado == 'solicitado'
+        && request.resource.data.creadoEn is timestamp
+        && request.resource.data.puntos is int
+        && request.resource.data.puntos > 0
+        && exists(/databases/$(database)/documents/consultasPuntos/$(request.resource.data.clienteId))
+        && get(/databases/$(database)/documents/consultasPuntos/$(request.resource.data.clienteId)).data.puntos >= request.resource.data.puntos
+        && exists(/databases/$(database)/documents/recompensasPublicas/$(request.resource.data.recompensaId))
+        && get(/databases/$(database)/documents/recompensasPublicas/$(request.resource.data.recompensaId)).data.activo == true
+        && get(/databases/$(database)/documents/recompensasPublicas/$(request.resource.data.recompensaId)).data.nombre == request.resource.data.recompensaNombre
+        && get(/databases/$(database)/documents/recompensasPublicas/$(request.resource.data.recompensaId)).data.puntos == request.resource.data.puntos;
+      allow read, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /cupones/{couponId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /configuracion/{settingId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /configuracionPublica/{settingId} {
+      // Solo expone datos de contacto elegidos para mostrar en la página pública.
+      allow get: if settingId == 'negocio';
+      allow list: if false;
+      allow create, update: if isAdmin()
+        && settingId == 'negocio'
+        && request.resource.data.keys().hasOnly(['whatsapp', 'instagram', 'ubicacion', 'pesosPorPunto'])
+        && request.resource.data.whatsapp is string
+        && request.resource.data.instagram is string
+        && request.resource.data.ubicacion is string
+        && request.resource.data.pesosPorPunto is int
+        && request.resource.data.pesosPorPunto > 0;
+      allow delete: if isAdmin() && settingId == 'negocio';
     }
 
     match /movimientos/{movementId} {
