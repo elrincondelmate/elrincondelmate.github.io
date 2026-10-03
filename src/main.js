@@ -352,7 +352,7 @@ function updateSelectOptions(select, options, placeholder, render) {
 }
 
 function updateClientChoices() {
-  const entries = [...clientsById.entries()].filter(([, client]) => client.activo !== false).sort((a, b) => clientName(a[1]).localeCompare(clientName(b[1]), "es"));
+  const entries = [...clientsById.entries()].filter(([, client]) => client.activo !== false && client.eliminado !== true).sort((a, b) => clientName(a[1]).localeCompare(clientName(b[1]), "es"));
   [$("#purchase-client"), $("#coupon-client"), $("#adjust-client")].forEach((select) => updateSelectOptions(select, entries, "Elegí un cliente…", (id, data) => `${clientName(data)} · ${id}`));
   updateSelectOptions($("#new-client-referrer"), entries, "Sin referido", (id, data) => `${clientName(data)} · ${id}`);
 }
@@ -420,7 +420,7 @@ function updateDashboard() {
   const sales = monthly.filter((purchase) => purchase.estado !== "anulada")
     .reduce((sum, purchase) => sum + (Number(purchase.total) || 0), 0);
   $("#stat-sales").textContent = currency.format(sales);
-  const points = [...clientsById.values()].reduce((sum, client) => sum + (Number(client.puntos) || 0), 0);
+  const points = [...clientsById.values()].reduce((sum, client) => sum + Math.max(0, Number(client.puntos) || 0), 0);
   $("#stat-points").textContent = String(points);
   const recent = $("#dashboard-history");
   recent.replaceChildren();
@@ -526,19 +526,22 @@ function renderClients() {
   }
   entries.forEach(([id, data]) => {
     const row = document.createElement("div");
-    row.className = "record-row";
+    row.className = `record-row ${data.eliminado ? "is-archived" : ""}`;
     const info = document.createElement("div");
     info.className = "record-info";
     const name = document.createElement("strong");
     name.textContent = clientName(data);
     const detail = document.createElement("span");
-    detail.textContent = `${Number(data.puntos) || 0} puntos · ${id}${data.activo === false ? " · pausado" : ""}`;
+    const balance = Number(data.puntos) || 0;
+    const balanceLabel = balance < 0 ? `${Math.abs(balance)} puntos por recuperar` : `${balance} puntos`;
+    detail.textContent = `${balanceLabel} · ${id}${data.eliminado ? " · eliminado (historial conservado)" : data.activo === false ? " · pausado" : ""}`;
     info.append(name, detail);
     row.append(info);
     const actions = document.createElement("div"); actions.className = "record-actions";
-    const editButton = document.createElement("button");
-    editButton.type = "button"; editButton.className = "text-button"; editButton.textContent = "Editar";
-    editButton.addEventListener("click", async () => {
+    if (!data.eliminado) {
+      const editButton = document.createElement("button");
+      editButton.type = "button"; editButton.className = "text-button"; editButton.textContent = "Editar";
+      editButton.addEventListener("click", async () => {
       const firstName = prompt("Nombre:", data.nombre || ""); if (firstName === null) return;
       const surname = prompt("Apellido:", data.apellido || ""); if (surname === null) return;
       if (!firstName.trim() || !surname.trim()) { setMessage("#admin-status", "El nombre y el apellido no pueden quedar vacíos."); return; }
@@ -551,23 +554,48 @@ function renderClients() {
         });
         await Promise.all([loadClients(), loadHistory()]);
       } catch (error) { setMessage("#admin-status", `No se pudieron actualizar los datos del cliente. ${technicalError(error)}`); }
-    });
-    actions.append(editButton);
-    const statusButton = document.createElement("button"); statusButton.type = "button"; statusButton.className = `text-button ${data.activo === false ? "" : "destructive-link"}`; statusButton.textContent = data.activo === false ? "Reactivar" : "Pausar";
+      });
+      actions.append(editButton);
+    }
+    const restoring = data.eliminado === true;
+    const statusButton = document.createElement("button"); statusButton.type = "button"; statusButton.className = `text-button ${data.activo === false || restoring ? "" : "destructive-link"}`; statusButton.textContent = restoring ? "Restaurar" : data.activo === false ? "Reactivar" : "Pausar";
     statusButton.addEventListener("click", async () => {
-      const active = data.activo === false;
+      const active = restoring || data.activo === false;
       if (!active && !confirm(`¿Pausar a ${clientName(data)}? No se podrá usar en compras ni cupones; su saldo e historial se conservan.`)) return;
       const ref = doc(db, "clientes", id);
+      const publicRef = doc(db, "consultasPuntos", id);
       try {
         await runTransaction(db, async (transaction) => {
           const snapshot = await transaction.get(ref); if (!snapshot.exists()) throw new Error("missing-client");
-          transaction.update(ref, { activo: active, actualizadoEn: serverTimestamp() });
-          await audit(transaction, { tipo: "administracion", descripcion: `${active ? "Cliente reactivado" : "Cliente pausado"}: ${clientName(data)}`, entidad: "cliente", entidadId: id, clienteId: id });
+          if (restoring) await transaction.get(publicRef);
+          transaction.update(ref, { activo: active, ...(restoring ? { eliminado: false, restauradoEn: serverTimestamp() } : {}), actualizadoEn: serverTimestamp() });
+          if (restoring) transaction.set(publicRef, { puntos: Math.max(0, Number(snapshot.data().puntos) || 0) });
+          await audit(transaction, { tipo: "administracion", descripcion: `${restoring ? "Cliente restaurado" : active ? "Cliente reactivado" : "Cliente pausado"}: ${clientName(data)}`, entidad: "cliente", entidadId: id, clienteId: id });
         });
         await Promise.all([loadClients(), loadHistory()]);
       } catch (error) { setMessage("#admin-status", `No se pudo cambiar el estado del cliente. ${technicalError(error)}`); }
     });
     actions.append(statusButton);
+    if (!data.eliminado) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button"; deleteButton.className = "text-button destructive-link"; deleteButton.textContent = "Eliminar";
+      deleteButton.addEventListener("click", async () => {
+        if (!confirm(`¿Eliminar a ${clientName(data)} (${id})? Se ocultará su saldo público y no podrá usarse en compras. Sus ventas y movimientos se conservan; el cliente se podrá restaurar.`)) return;
+        const ref = doc(db, "clientes", id); const publicRef = doc(db, "consultasPuntos", id);
+        try {
+          await runTransaction(db, async (transaction) => {
+            const snapshot = await transaction.get(ref); await transaction.get(publicRef);
+            if (!snapshot.exists() || snapshot.data().eliminado === true) throw new Error("missing-client");
+            transaction.update(ref, { activo: false, eliminado: true, eliminadoEn: serverTimestamp(), eliminadoPor: auth.currentUser.uid });
+            transaction.delete(publicRef);
+            await audit(transaction, { tipo: "administracion", descripcion: `Cliente eliminado (historial conservado): ${clientName(data)}`, entidad: "cliente", entidadId: id, clienteId: id });
+          });
+          setMessage("#admin-status", "Cliente eliminado; sus compras e historial se conservaron.");
+          await Promise.all([loadClients(), loadHistory()]);
+        } catch (error) { setMessage("#admin-status", `No se pudo eliminar el cliente. ${technicalError(error)}`); }
+      });
+      actions.append(deleteButton);
+    }
     const historyButton = document.createElement("button");
     historyButton.type = "button"; historyButton.className = "text-button"; historyButton.textContent = "Ver movimientos";
     historyButton.addEventListener("click", () => {
@@ -595,7 +623,7 @@ async function logProductUpdate(productId, patch, action, description) {
     const snapshot = await transaction.get(productRef);
     if (!snapshot.exists()) throw new Error("missing-product");
     transaction.update(productRef, { ...patch, actualizadoEn: serverTimestamp() });
-    await audit(transaction, { tipo: "administracion", descripcion, entidad: "producto", entidadId: productId, detalle: action });
+    await audit(transaction, { tipo: "administracion", descripcion: description, entidad: "producto", entidadId: productId, detalle: action });
   });
 }
 
@@ -802,7 +830,7 @@ async function saveRewardUpdate(id, next, description) {
       const publicProjection = { nombre: next.nombre, puntos: Number(next.puntos), categoria: next.categoria, descripcion: next.descripcion || "", activo: next.activo !== false && next.archivado !== true };
       transaction.update(rewardRef, { ...next, actualizadoEn: serverTimestamp() });
       transaction.set(publicRef, publicProjection);
-      await audit(transaction, { tipo: "administracion", descripcion, entidad: "recompensa", entidadId: id });
+      await audit(transaction, { tipo: "administracion", descripcion: description, entidad: "recompensa", entidadId: id });
     });
     setMessage("#reward-status", "Recompensa actualizada y guardada en el historial.");
     await loadRewards();
@@ -970,9 +998,10 @@ async function saveEditedPurchase(event) {
       const pointDelta = newPoints - oldPoints;
       const balance = currentPoints + pointDelta;
       if (balance < 0) throw new Error("points-spent");
+      if (clientSnapshot.data().eliminado === true) throw new Error("deleted-client");
       const detail = `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`;
       transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() });
-      transaction.set(publicRef, { puntos: balance });
+      transaction.set(publicRef, { puntos: Math.max(0, balance) });
       transaction.update(purchaseRef, { items, total, puntosSumados: newPoints, editada: true, actualizadoEn: serverTimestamp(), actualizadoPor: auth.currentUser.uid });
       transaction.update(movementRef, { importe: total, puntos: newPoints, detalle, actualizadoEn: serverTimestamp() });
       await audit(transaction, {
@@ -991,7 +1020,9 @@ async function saveEditedPurchase(event) {
     await Promise.all([loadClients(), loadHistory(), loadPurchases()]);
   } catch (error) {
     const message = error.message === "points-spent"
-      ? "No se puede reducir esos puntos porque el cliente ya los usó. Anulá la venta o corregí el saldo desde Clientes."
+        ? "No se puede reducir esos puntos porque el cliente ya los usó. Anulá la venta o corregí el saldo desde Clientes."
+      : error.message === "deleted-client"
+        ? "Restaurá al cliente antes de editar esta venta."
       : error.message === "already-cancelled"
         ? "Esta venta ya fue anulada."
         : error.message === "stale-purchase"
@@ -1010,7 +1041,7 @@ async function cancelPurchase(movement) {
     setMessage("#admin-status", "No se puede identificar la compra para anularla.");
     return;
   }
-  if (!confirm(`¿Anular esta compra? Se reintegrarán los puntos que sumó. El producto y la operación quedarán visibles como anulados en el historial.\n\n${movement.detalle || "Compra"}`)) return;
+  if (!confirm(`¿Anular esta compra? Se descontarán del saldo los puntos que sumó. Si ya se usaron, el cliente quedará con puntos por recuperar y sus próximas compras los compensarán. La operación seguirá visible como anulada en el historial.\n\n${movement.detalle || "Compra"}`)) return;
   const purchaseRef = doc(db, "compras", purchaseId);
   const clientRef = doc(db, "clientes", clientId);
   const phone = normalizeArgentinePhone(clientId);
@@ -1018,7 +1049,7 @@ async function cancelPurchase(movement) {
   const publicRef = doc(db, "consultasPuntos", phone);
   const movementRef = doc(db, "movimientos", movement.id);
   try {
-    await runTransaction(db, async (transaction) => {
+    const balanceAfter = await runTransaction(db, async (transaction) => {
       const purchaseSnapshot = await transaction.get(purchaseRef);
       const clientSnapshot = await transaction.get(clientRef);
       await transaction.get(publicRef);
@@ -1026,11 +1057,13 @@ async function cancelPurchase(movement) {
       if (!purchaseSnapshot.exists() || !clientSnapshot.exists() || !movementSnapshot.exists()) throw new Error("missing-record");
       if (purchaseSnapshot.data().estado === "anulada" || movementSnapshot.data().anulada === true) throw new Error("already-cancelled");
       const points = Number(purchaseSnapshot.data().puntosSumados ?? movementSnapshot.data().puntos) || 0;
-      const current = Number(clientSnapshot.data().puntos) || 0;
-      if (current < points) throw new Error("points-spent");
+      const current = Number(clientSnapshot.data().puntos);
+      if (!Number.isSafeInteger(current)) throw new Error("invalid-balance");
       const balance = current - points;
+      if (!Number.isSafeInteger(balance)) throw new Error("invalid-balance");
       transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() });
-      transaction.set(publicRef, { puntos: balance });
+      if (clientSnapshot.data().eliminado === true) transaction.delete(publicRef);
+      else transaction.set(publicRef, { puntos: Math.max(0, balance) });
       transaction.update(purchaseRef, { estado: "anulada", anuladaEn: serverTimestamp(), anuladaPor: auth.currentUser.uid });
       transaction.update(movementRef, { anulada: true, descripcion: "Compra anulada", actualizadoEn: serverTimestamp() });
       await audit(transaction, {
@@ -1043,14 +1076,17 @@ async function cancelPurchase(movement) {
         detalle: movement.detalle || "Compra de prueba anulada",
         extras: { referenciaId: purchaseId },
       });
+      return balance;
     });
-    setMessage("#admin-status", "Compra anulada. El saldo se corrigió y la acción quedó registrada.");
+    setMessage("#admin-status", balanceAfter < 0
+      ? `Compra anulada. Quedaron ${Math.abs(balanceAfter)} puntos por recuperar; las próximas compras los compensarán. La acción quedó en el historial.`
+      : "Compra anulada. El saldo se corrigió y la acción quedó registrada.");
     await Promise.all([loadClients(), loadHistory(), loadPurchases()]);
   } catch (error) {
-    const message = error.message === "points-spent"
-      ? "No se puede anular: el cliente ya usó parte de esos puntos. Corregí el saldo desde Clientes con el motivo correspondiente."
-      : error.message === "already-cancelled"
+    const message = error.message === "already-cancelled"
         ? "Esta compra ya había sido anulada."
+      : error.message === "invalid-balance"
+        ? "El saldo de puntos necesita revisión; no se cambiaron datos."
         : "No se pudo anular la compra. No se cambiaron los puntos.";
     setMessage("#admin-status", message === "No se pudo anular la compra. No se cambiaron los puntos." ? `${message} ${technicalError(error)}` : message);
   }
@@ -1340,10 +1376,12 @@ async function cancelCoupon(coupon) {
     await runTransaction(db, async (transaction) => {
       const couponSnapshot = await transaction.get(couponRef);
       const clientSnapshot = await transaction.get(clientRef);
+      await transaction.get(publicRef);
       if (!couponSnapshot.exists() || !clientSnapshot.exists() || couponSnapshot.data().estado !== "pendiente") throw new Error("coupon-not-active");
       const newBalance = (Number(clientSnapshot.data().puntos) || 0) + Number(coupon.puntos);
       transaction.update(clientRef, { puntos: newBalance, actualizadoEn: serverTimestamp() });
-      transaction.set(publicRef, { puntos: newBalance });
+      if (clientSnapshot.data().eliminado === true) transaction.delete(publicRef);
+      else transaction.set(publicRef, { puntos: Math.max(0, newBalance) });
       transaction.update(couponRef, { estado: "anulado", anuladoEn: serverTimestamp(), anuladoPor: auth.currentUser.uid });
       await audit(transaction, { tipo: "cupon_anulado", descripcion: `Cupón ${coupon.codigo} anulado y puntos reintegrados`, entidad: "cupon", entidadId: coupon.id, clienteId: coupon.clienteId, puntos: Number(coupon.puntos), detalle: coupon.recompensaNombre });
     });
@@ -1492,7 +1530,7 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         if (referrerRef && referralPoints > 0) {
           const referrerBalance = Number(referrerSnapshot.data().puntos) || 0;
           transaction.update(referrerRef, { puntos: referrerBalance + referralPoints, actualizadoEn: serverTimestamp() });
-          transaction.set(referrerPublicRef, { puntos: referrerBalance + referralPoints });
+          transaction.set(referrerPublicRef, { puntos: Math.max(0, referrerBalance + referralPoints) });
           await audit(transaction, { tipo: "referido", descripcion: "Puntos por recomendar un nuevo cliente", entidad: "cliente", entidadId: referrerId, clienteId: referrerId, puntos: referralPoints, detalle: `Nuevo cliente: ${name} ${surname}` });
         }
       });
@@ -1565,8 +1603,8 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         const productSnapshots = new Map();
         for (const line of lines) if (!productSnapshots.has(line.productId)) productSnapshots.set(line.productId, await transaction.get(doc(db, "productos", line.productId)));
         if (!clientSnapshot.exists()) throw new Error("missing-client");
-        if (clientSnapshot.data().activo === false) throw new Error("inactive-client");
-        const currentPoints = Number(clientSnapshot.data().puntos); if (!Number.isSafeInteger(currentPoints) || currentPoints < 0) throw new Error("invalid-balance");
+        if (clientSnapshot.data().activo === false || clientSnapshot.data().eliminado === true) throw new Error("inactive-client");
+        const currentPoints = Number(clientSnapshot.data().puntos); if (!Number.isSafeInteger(currentPoints)) throw new Error("invalid-balance");
         const items = lines.map((line) => {
           const snapshot = productSnapshots.get(line.productId); if (!snapshot.exists() || snapshot.data().activo === false || snapshot.data().archivado) throw new Error("inactive-product");
           const product = snapshot.data(); const price = Number(product.precio);
@@ -1575,7 +1613,8 @@ if (isFirebaseConfigured && adminEmail && !adminEmail.startsWith("REPLACE_WITH_"
         });
         const total = items.reduce((sum, item) => sum + item.subtotal, 0); if (!Number.isSafeInteger(total)) throw new Error("invalid-total");
         const gained = Math.floor(total / (Number(settings.pesosPorPunto) || 100)); const balance = currentPoints + gained;
-        transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() }); transaction.set(publicRef, { puntos: balance });
+        if (!Number.isSafeInteger(balance)) throw new Error("invalid-balance");
+        transaction.update(clientRef, { puntos: balance, actualizadoEn: serverTimestamp() }); transaction.set(publicRef, { puntos: Math.max(0, balance) });
         transaction.set(purchaseRef, { clienteId: clientId, items, total, puntosSumados: gained, creadoEn: serverTimestamp(), creadoPor: auth.currentUser.uid });
         await audit(transaction, { tipo: "compra", descripcion: "Compra registrada", entidad: "compra", entidadId: purchaseRef.id, clienteId: clientId, puntos: gained, detalle: `${currency.format(total)} · ${items.map((item) => `${item.nombre} x${item.cantidad}`).join(", ")}`, extras: { importe: total, referenciaId: purchaseRef.id } });
         return { total, gained, balance };
